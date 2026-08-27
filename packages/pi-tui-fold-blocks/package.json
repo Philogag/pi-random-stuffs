@@ -16,12 +16,16 @@
     "test": "vitest run",
     "lint": "echo \"no linter configured\""
   },
-  "dependencies": {
+  "dependencies": {},
+  "peerDependencies": {
     "@earendil-works/pi-coding-agent": "^0.84.3",
     "@earendil-works/pi-tui": "latest",
     "typebox": "latest"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@earendil-works/pi-tui": "latest",
+    "typebox": "latest",
     "typescript": "^5.6.3",
     "vitest": "latest"
   }
