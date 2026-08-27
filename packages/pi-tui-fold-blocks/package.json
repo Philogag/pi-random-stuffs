@@ -1,0 +1,25 @@
+{
+  "name": "@philogag/pi-tui-fold-blocks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
+    "test": "vitest run",
+    "lint": "echo \"no linter configured\""
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@earendil-works/pi-tui": "latest",
+    "typebox": "latest"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "latest"
+  }
+}
