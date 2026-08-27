@@ -36,4 +36,4 @@ Thumbs.db
 
 # Cache
 .turbo/
-.cache/
+.cache/.worktrees/
