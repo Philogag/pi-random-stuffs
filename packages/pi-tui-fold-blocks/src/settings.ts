@@ -13,7 +13,7 @@ export async function openSettings(
 ): Promise<void> {
   let cfg = config;
   for (;;) {
-    const choice = await pi.select("fold-blocks 设置", [
+    const choice = await pi.select("tui-fold-blocks 设置", [
       `${cfg.mode === "fold" ? "[x]" : "[ ]"} 模式:${cfg.mode}`,
       `${cfg.nerdFont ? "[x]" : "[ ]"} nerd font 图标`,
       `路径样式:${cfg.fileBlocks.pathStyle}`,

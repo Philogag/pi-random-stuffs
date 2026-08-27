@@ -10,18 +10,18 @@ edit / bash 四类工具块，并支持通过命令与设置子页面控制全�
 
 ### Requirement: 工作模式（native / fold / hide）
 
-扩展 MUST 提供三种全局工作模式：`native`（不干预、使用内置渲染）、`fold`（折叠为单行）与 `hide`（不渲染任何工具块），且 SHALL 默认使用 `fold`。模式 SHALL 通过 `/fold-blocks` 命令循环切换，并 SHALL 持久化到 settings.json 供会话恢复。
+扩展 MUST 提供三种全局工作模式：`native`（不干预、使用内置渲染）、`fold`（折叠为单行）与 `hide`（不渲染任何工具块），且 SHALL 默认使用 `fold`。模式 SHALL 通过 `/tui-fold-blocks` 命令打开的配置页面选择，并 SHALL 持久化到 settings.json 供会话恢复。
 
 #### Scenario: 默认折叠
 - **WHEN** 启用扩展且未指定模式
 - **THEN** 所有覆盖的工具块以折叠单行渲染
 
 #### Scenario: 切换到隐藏
-- **WHEN** 用户执行 `/fold-blocks` 循环至 hide 模式
+- **WHEN** 用户执行 `/tui-fold-blocks` 并在配置页面选择 hide 模式
 - **THEN** 不再渲染任何工具块，但其 session 内容保持不变
 
 #### Scenario: 切换到原生
-- **WHEN** 用户执行 `/fold-blocks` 循环至 native 模式
+- **WHEN** 用户执行 `/tui-fold-blocks` 并在配置页面选择 native 模式
 - **THEN** 工具块以 pi 内置方式渲染，扩展不干预
 
 ### Requirement: 折叠块单行左右对齐布局
@@ -102,14 +102,14 @@ edit / bash 四类工具块，并支持通过命令与设置子页面控制全�
 
 ### Requirement: 配置存储与命令入口
 
-扩展 MUST 将全部设置读写入 `settings.json` 的 `<包名>` 块，并在缺失/损坏时 SHALL 回退到默认值且不阻塞渲染。扩展 MUST 注册 `/fold-blocks` 命令，循环切换模式并 SHALL 结合 pi 内置 TUI 组件进入设置子页面。
+扩展 MUST 将全部设置读写入 `settings.json` 的 `<包名>` 块，并在缺失/损坏时 SHALL 回退到默认值且不阻塞渲染。扩展 MUST 注册 `/tui-fold-blocks` 命令，SHALL 结合 pi 内置 TUI 组件打开配置页面。
 
 #### Scenario: settings.json 缺失回退
 - **WHEN** settings.json 中无 `<包名>` 块或内容损坏
 - **THEN** 扩展使用默认配置渲染，不报错、不中断
 
 #### Scenario: 命令进入设置
-- **WHEN** 用户执行 `/fold-blocks` 选择进入设置
+- **WHEN** 用户执行 `/tui-fold-blocks`
 - **THEN** 展示 pi 内置组件构成的配置子页面，改动写回 settings.json
 
 ### Requirement: 覆盖工具与执行委托
