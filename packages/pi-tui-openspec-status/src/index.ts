@@ -44,7 +44,7 @@ function isBashInput(e: unknown): e is { input: BashToolCallInput } {
   );
 }
 
-export default function piTuiOpenspecStatus(pi: PiLike, ctx: ExtensionContextLike) {
+export default function piTuiOpenspecStatus(pi: PiLike, ctx?: ExtensionContextLike) {
   // D9: TUI-mode exclusive activation. When pi is not running in its
   // interactive terminal mode, the extension is COMPLETELY INACTIVE.
   // We early-return WITHOUT registering any event listeners, starting
@@ -52,7 +52,12 @@ export default function piTuiOpenspecStatus(pi: PiLike, ctx: ExtensionContextLik
   // spec Requirement "TUI 模式独占激活". We use ctx.mode (NOT
   // ctx.hasUI) because hasUI is true for both tui and rpc — using
   // hasUI would wrongly activate in rpc mode.
-  if (ctx.mode !== "tui") return;
+  //
+  // Defensive: pi's extension loader MAY invoke the factory with
+  // ctx === undefined when loading via `-e` (e.g. `pi -p -e path`).
+  // In that case, mode is also undefined, so `ctx?.mode !== "tui"`
+  // is the safest gate.
+  if (ctx?.mode !== "tui") return;
 
   let lockedChange: string | undefined;
   let effectiveCwd = "";

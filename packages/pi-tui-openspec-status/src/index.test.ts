@@ -64,4 +64,13 @@ describe("piTuiOpenspecStatus — TUI-mode gate", () => {
     pi.fire("tool_result", {});
     expect(calls).toEqual([]);
   });
+
+  it("is defensive when pi loads via -e and ctx is undefined", () => {
+    const pi = makePi();
+    // Must NOT throw "Cannot read properties of undefined (reading 'mode')".
+    expect(() => piTuiOpenspecStatus(pi as never, undefined)).not.toThrow();
+    expect(pi.listenerCount("session_start")).toBe(0);
+    expect(pi.listenerCount("tool_call")).toBe(0);
+    expect(pi.listenerCount("tool_result")).toBe(0);
+  });
 });
