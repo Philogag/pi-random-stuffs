@@ -1,7 +1,7 @@
 // packages/pi-tui-fold-blocks/src/config.ts
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getAgentDir, CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export type Mode = "native" | "fold" | "hide";
 
