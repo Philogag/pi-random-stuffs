@@ -1,6 +1,8 @@
+// packages/pi-tui-fold-blocks/src/index.ts
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { loadConfig } from "./config.js";
 
 export default function (pi: ExtensionAPI): void {
-  // Task 3 起填充:配置加载 + 工具覆盖 + 命令注册
-  void pi;
+  const config = loadConfig();
+  void config;
 }
