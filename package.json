@@ -1,0 +1,22 @@
+{
+  "name": "pi-ramdom-stuffs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Node.js monorepo (pnpm workspaces + TypeScript)",
+  "type": "module",
+  "packageManager": "pnpm@9.12.3",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r --parallel build",
+    "test": "pnpm -r test",
+    "test:unit": "pnpm -r test:unit",
+    "lint": "pnpm -r lint",
+    "typecheck": "sh -c 'if [ -n \"$(find packages -mindepth 2 -maxdepth 2 -name tsconfig.json 2>/dev/null)\" ]; then tsc -b; else echo \"no packages to typecheck yet\"; fi'",
+    "clean": "pnpm -r exec rm -rf dist .turbo *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
