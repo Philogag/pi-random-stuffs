@@ -1,0 +1,30 @@
+{
+  "name": "@philogag/pi-tui-openspec-status",
+  "version": "0.1.0",
+  "description": "pi extension: single-line status bar for the current locked openspec change, with worktree-aware task merging",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.40.0"
+  },
+  "devDependencies": {
+    "@types/node": ">=20",
+    "typescript": ">=5.6",
+    "vitest": ">=2.0"
+  }
+}
