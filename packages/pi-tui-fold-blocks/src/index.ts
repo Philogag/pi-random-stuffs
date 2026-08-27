@@ -11,21 +11,24 @@ export default function (pi: ExtensionAPI): void {
     config = setMode(config, modeState.mode);
   });
   const cwd = process.cwd();
-  registerOverrides(pi, cwd, config, modeState);
+  // 用 getter 把活 config 暴露给 overrides —— 让设置保存后立刻生效(P1-1 修复)
+  const getConfig = (): FoldBlocksConfig => config;
+  registerOverrides(pi, cwd, getConfig, modeState);
 
   pi.registerCommand("fold-blocks", {
     description: "循环切换工具块显示模式(原生/折叠/隐藏)并进入设置",
     handler: async (args: string, ctx: ExtensionCommandContext) => {
       if (args.trim() === "settings") {
         await openSettings(ctx.ui, config, (next) => {
-          config = next as FoldBlocksConfig;
+          config = next;
+          if (next.mode !== modeState.mode) modeState.setMode(next.mode); // 模式字段实时同步,触发 rerenderAll
           saveConfig(config);
         });
         return;
       }
       const next = nextMode(modeState.mode);
-      modeState.setMode(next); // 触发 rerenderAll
-      config = setMode(config, next);
+      config = setMode(config, next); // 先持久化(setMode 不会触发 onModeChange,这里显式 set 一下触发 rerenderAll)
+      modeState.setMode(next);
       saveConfig(config);
     },
   });

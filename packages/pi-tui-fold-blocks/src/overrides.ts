@@ -19,7 +19,7 @@ function override(
   name: string,
   cwd: string,
   factory: DefFactory,
-  cfg: FoldBlocksConfig,
+  cfgGetter: () => FoldBlocksConfig,
   modeState: ModeState,
 ): void {
   const original = factory(cwd);
@@ -53,7 +53,7 @@ function override(
       isPartial: options.isPartial,
       isError: context.isError,
       expanded: options.expanded,
-      config: cfg,
+      config: cfgGetter(), // 每次渲染取最新值,设置保存后立即生效
       cwd: context.cwd,
       modeState,
       theme: theme as never,
@@ -70,9 +70,9 @@ function override(
   });
 }
 
-export function registerOverrides(pi: ExtensionAPI, cwd: string, cfg: FoldBlocksConfig, modeState: ModeState): void {
-  override(pi, "read", cwd, createReadToolDefinition as never, cfg, modeState);
-  override(pi, "bash", cwd, createBashToolDefinition as never, cfg, modeState);
-  override(pi, "edit", cwd, createEditToolDefinition as never, cfg, modeState);
-  override(pi, "write", cwd, createWriteToolDefinition as never, cfg, modeState);
+export function registerOverrides(pi: ExtensionAPI, cwd: string, cfgGetter: () => FoldBlocksConfig, modeState: ModeState): void {
+  override(pi, "read", cwd, createReadToolDefinition as never, cfgGetter, modeState);
+  override(pi, "bash", cwd, createBashToolDefinition as never, cfgGetter, modeState);
+  override(pi, "edit", cwd, createEditToolDefinition as never, cfgGetter, modeState);
+  override(pi, "write", cwd, createWriteToolDefinition as never, cfgGetter, modeState);
 }
