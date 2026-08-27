@@ -36,4 +36,7 @@ Thumbs.db
 
 # Cache
 .turbo/
-.cache/.worktrees/
+.cache/
+
+# Git worktrees
+.worktrees/
