@@ -1,6 +1,12 @@
 # pi-ramdom-stuffs
 
-Node.js monorepo scaffold using **pnpm workspaces** + **TypeScript**.
+Node.js monorepo scaffold using **pnpm workspaces** + **TypeScript**。存放 pi 相关的扩展/工具包。
+
+## Packages
+
+| 包 | 说明 | 状态 |
+| --- | --- | --- |
+| [`@philogag/pi-tui-fold-blocks`](packages/pi-tui-fold-blocks/) | pi TUI 插件:折叠 / 隐藏工具调用块(三态、单行左右对齐、状态背景色) | ✅ 可用 |
 
 ## Layout
 
