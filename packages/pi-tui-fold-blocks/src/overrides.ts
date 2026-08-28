@@ -3,14 +3,39 @@ import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-age
 import { createReadToolDefinition, createBashToolDefinition, createEditToolDefinition, createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Text } from "@earendil-works/pi-tui";
-import type { ModeState } from "./mode.js";
+import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { FoldBlocksConfig } from "./config.js";
 import { renderBlock } from "./render.js";
 
 // ToolRenderContext 在 SDK 内部类型但未公开 re-export;从 ToolDefinition 推导
 type AnyToolDef = ToolDefinition<any, any, any>;
-type RenderCallCtx = NonNullable<AnyToolDef["renderCall"]> extends (a: any, t: any, c: infer C) => any ? C : never;
-type RenderResultCtx = NonNullable<AnyToolDef["renderResult"]> extends (r: any, o: any, t: any, c: infer C) => any ? C : never;
+
+export interface ToolRenderContext<TState = any, TArgs = any> {
+	/** Current tool call arguments. Shared across call/result renders for the same tool call. */
+	args: TArgs;
+	/** Unique id for this tool execution. Stable across call/result renders for the same tool call. */
+	toolCallId: string;
+	/** Invalidate just this tool execution component for redraw. */
+	invalidate: () => void;
+	/** Previously returned component for this render slot, if any. */
+	lastComponent: Component | undefined;
+	/** Shared renderer state for this tool row. Initialized by tool-execution.ts. */
+	state: TState;
+	/** Working directory for this tool execution. */
+	cwd: string;
+	/** Whether the tool execution has started. */
+	executionStarted: boolean;
+	/** Whether the tool call arguments are complete. */
+	argsComplete: boolean;
+	/** Whether the tool result is partial/streaming. */
+	isPartial: boolean;
+	/** Whether the result view is expanded. */
+	expanded: boolean;
+	/** Whether inline images are currently shown in the TUI. */
+	showImages: boolean;
+	/** Whether the current result is an error. */
+	isError: boolean;
+}
 
 type DefFactory = (cwd: string) => AnyToolDef;
 
@@ -20,45 +45,43 @@ function override(
   cwd: string,
   factory: DefFactory,
   cfgGetter: () => FoldBlocksConfig,
-  modeState: ModeState,
 ): void {
   const original = factory(cwd);
-  // renderCall 签名: (args, theme, context); renderResult: (result, options, theme, context)
-  // RenderCallCtx/RenderResultCtx 自带 args/toolCallId/invalidate/lastComponent/state/cwd/isPartial/isError/expanded
-  const renderCall = (args: unknown, theme: unknown, context: RenderCallCtx): Component => {
-    modeState.addInvalidator(context.toolCallId, context.invalidate);
-    if (modeState.mode === "native") {
-      // 完全放手:委托内置渲染(renderShell:self 限制下无状态色框,记录为已知限制)
+
+  const renderCall = (args: unknown, theme: Theme, context: ToolRenderContext): Component => {
+    const config = cfgGetter();
+    if (config.mode === "native") {
       return (original.renderCall?.(args as never, theme as never, context) as Component) ?? new Text("", 0, 0);
     }
-    // 单行原则:内容全部由 renderResult 渲染;这里返回 0 行空 Text,
-    // 避免 SDK 将 renderCall 与 renderResult 都 addChild 导致两行。
-    return new Text("", 0, 0);
+    return renderBlock(context, {
+      name: name,
+      stage: "call",
+      args: context.args,
+      result: undefined,
+      cwd: context.cwd,
+      config: config,
+      theme: theme,
+    });
   };
+
   const renderResult = (
     result: unknown,
     options: { expanded: boolean; isPartial: boolean },
-    theme: unknown,
-    context: RenderResultCtx,
+    theme: Theme,
+    context: ToolRenderContext,
   ): Component => {
-    modeState.addInvalidator(context.toolCallId, context.invalidate);
-    if (modeState.mode === "native") {
+    const config = cfgGetter();
+    if (config.mode === "native") {
       return (original.renderResult?.(result as never, options as never, theme as never, context) as Component) ?? new Text("", 0, 0);
     }
-    return renderBlock({
-      toolName: name,
-      kind: name === "bash" ? "bash" : "file",
+    return renderBlock(context, {
+      name: name,
+      stage: "result",
       args: context.args,
       result,
-      isPartial: options.isPartial,
-      isError: context.isError,
-      expanded: options.expanded,
-      config: cfgGetter(), // 每次渲染取最新值,设置保存后立即生效
       cwd: context.cwd,
-      modeState,
-      theme: theme as never,
-      lastComponent: context.lastComponent,
-      toolCallId: context.toolCallId,
+      config: config,
+      theme: theme,
     });
   };
   pi.registerTool({
@@ -70,9 +93,9 @@ function override(
   });
 }
 
-export function registerOverrides(pi: ExtensionAPI, cwd: string, cfgGetter: () => FoldBlocksConfig, modeState: ModeState): void {
-  override(pi, "read", cwd, createReadToolDefinition as never, cfgGetter, modeState);
-  override(pi, "bash", cwd, createBashToolDefinition as never, cfgGetter, modeState);
-  override(pi, "edit", cwd, createEditToolDefinition as never, cfgGetter, modeState);
-  override(pi, "write", cwd, createWriteToolDefinition as never, cfgGetter, modeState);
+export function registerOverrides(pi: ExtensionAPI, cwd: string, cfgGetter: () => FoldBlocksConfig): void {
+  override(pi, "read", cwd, createReadToolDefinition as never, cfgGetter);
+  override(pi, "write", cwd, createWriteToolDefinition as never, cfgGetter);
+  override(pi, "edit", cwd, createEditToolDefinition as never, cfgGetter);
+  override(pi, "bash", cwd, createBashToolDefinition as never, cfgGetter);
 }
