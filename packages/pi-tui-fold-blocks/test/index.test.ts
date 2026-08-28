@@ -30,29 +30,33 @@ describe("index 注册入口", () => {
     vi.clearAllMocks();
   });
 
-  it("session_start 在非 TUI 模式(print/json/rpc)下不注册渲染钩子与命令", () => {
+  it("渲染钩子在顶层无条件注册(read/bash/edit/write)", () => {
+    const { pi, handlers } = makeMockPi();
+    extension(pi);
+
+    // registerTool 在工厂期即注册(不依赖 session_start),保证工具执行前钩子已就位
+    const toolNames = (pi.registerTool as unknown as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[0].name,
+    );
+    expect(toolNames).toEqual(expect.arrayContaining(["read", "bash", "edit", "write"]));
+    expect(handlers.get("session_start")).toBeDefined();
+  });
+
+  it("session_start 在非 TUI 模式(print/json/rpc)下不注册命令", () => {
     const { pi, handlers } = makeMockPi();
     extension(pi);
 
     for (const mode of ["print", "json", "rpc"]) {
       fireSessionStart(handlers, mode);
-      expect(pi.registerTool).not.toHaveBeenCalled();
       expect(pi.registerCommand).not.toHaveBeenCalled();
     }
   });
 
-  it("session_start 在 TUI 模式下注册渲染钩子(read/bash/edit/write)与命令", () => {
+  it("session_start 在 TUI 模式下注册命令 tui-fold-blocks", () => {
     const { pi, handlers } = makeMockPi();
     extension(pi);
 
     fireSessionStart(handlers, "tui");
-
-    const toolNames = (pi.registerTool as unknown as ReturnType<typeof vi.fn>).mock.calls.map(
-      (c) => c[0].name,
-    );
-    expect(toolNames).toEqual(
-      expect.arrayContaining(["read", "bash", "edit", "write"]),
-    );
 
     const cmdNames = (pi.registerCommand as unknown as ReturnType<typeof vi.fn>).mock.calls.map(
       (c) => c[0],
@@ -60,15 +64,14 @@ describe("index 注册入口", () => {
     expect(cmdNames).toContain("tui-fold-blocks");
   });
 
-  it("重复触发 session_start 不重复注册(TUI 模式幂等)", () => {
+  it("重复触发 session_start 不重复注册命令(TUI 模式幂等)", () => {
     const { pi, handlers } = makeMockPi();
     extension(pi);
 
     fireSessionStart(handlers, "tui");
     fireSessionStart(handlers, "tui");
 
-    const toolCalls = (pi.registerTool as unknown as ReturnType<typeof vi.fn>).mock.calls;
-    // 4 个工具 × 1 次
-    expect(toolCalls).toHaveLength(4);
+    const cmdCalls = (pi.registerCommand as unknown as ReturnType<typeof vi.fn>).mock.calls;
+    expect(cmdCalls).toHaveLength(1);
   });
 });
