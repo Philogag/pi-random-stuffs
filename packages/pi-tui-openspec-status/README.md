@@ -47,6 +47,23 @@ Per `pi.dev/docs/latest/extensions#ctx-mode`, `ctx.mode` (not
   status line.
 - The line refreshes 500ms after each matching `bash` tool call.
 
+## Manual tracking with `/tui-openspec-select`
+
+In TUI mode you can take manual control of the status bar with the
+`/tui-openspec-select` command:
+
+- Opens an interactive picker listing every **active** change
+  (`openspec/changes/*/` minus `archive/`) plus a `None` option.
+- Selecting a change manually **locks** the status bar to it: bash
+  `openspec` commands will NOT switch it away until you manually
+  re-select another change or pick `None` (manual overrides auto).
+- Picking `None` clears the manual lock and restores automatic
+  tracking from bash commands.
+- Cancelling the picker (Esc) changes nothing — the current tracking
+  state is left untouched.
+- Archiving the manually tracked change (e.g. `openspec archive <name>`)
+  still auto-clears the status bar, as usual.
+
 ## Worktree support
 
 When `openspec` is invoked inside a git worktree
