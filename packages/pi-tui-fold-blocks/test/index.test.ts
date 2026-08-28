@@ -30,13 +30,15 @@ describe("index 注册入口", () => {
     vi.clearAllMocks();
   });
 
-  it("session_start 在非 TUI 模式(print/json/rpc)下不注册渲染钩子与命令", () => {
+  it("非 TUI 模式(print/json/rpc)下工具 eager 注册、命令不注册", () => {
     const { pi, handlers } = makeMockPi();
     extension(pi);
 
     for (const mode of ["print", "json", "rpc"]) {
       fireSessionStart(handlers, mode);
-      expect(pi.registerTool).not.toHaveBeenCalled();
+      // registerTool 在工厂顶层 eager 注册,与模式无关
+      expect(pi.registerTool).toHaveBeenCalledTimes(4);
+      // 只有 registerCommand 是 TUI-gated
       expect(pi.registerCommand).not.toHaveBeenCalled();
     }
   });
