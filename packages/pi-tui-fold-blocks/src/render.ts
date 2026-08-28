@@ -1,5 +1,5 @@
 // packages/pi-tui-fold-blocks/src/render.ts
-import { Text, HStack, visibleWidth, truncateToWidth, type Component } from "@earendil-works/pi-tui";
+import { Text, HStack, visibleWidth, truncateToWidth, type Component, type StackChild } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { FoldBlocksConfig } from "./config.js";
 import { foldPath } from "./folders/path.js";
@@ -20,7 +20,7 @@ function countRows(content: string): number {
   return content.split("\n").reduce((n, v) => v.trim() ? n + 1: n, 0)
 }
 
-interface LineContext {
+export interface LineContext {
   icon?: string;
   tool: string;
   shown: string;
@@ -140,9 +140,9 @@ export function buildBashBlockText(ctx: ToolRenderContext, opts: RenderBlockOpts
   }
 }
 
-/** 左半段:icon + tool + shown + tips。 */
+/** 左半段:icon + tool + shown(tips 独立成段,保证折叠时不丢失)。 */
 function buildLeft(text: LineContext): string {
-  return `${text.icon ?? ""} ${text.tool} > ${text.shown} ${text.tips ?? ""}`.trim();
+  return `${text.icon ?? ""} ${text.tool} > ${text.shown}`.trim();
 }
 
 /** 右半段:result / 退出码。 */
@@ -237,9 +237,13 @@ class BgPaddedBox implements Component {
  *
  * 结构:
  *   BgPaddedBox(padX=1, padY=1, bgFn)         ← 左右/上下留白 + 全行 reBg(含右 padding)
- *     └ HStack(gap=0)                          ← 左右布局,宽度随 render(width) 实时重算
+ *     └ HStack(gap=1)                          ← 左右布局,宽度随 render(width) 实时重算
  *         ├ BgTruncatedText(left)  grow:1 shrink:1 minSize:0  ← 占满剩余宽度,过长截断(不换行)
+ *         ├ BgTruncatedText(tips)  grow:0 shrink:0            ← 完整保留,不被截断
  *         └ BgTruncatedText(right) grow:0 shrink:0            ← 自然宽度,贴右
+ *
+ * tips 独立成段(grow:0 shrink:0):空间不足时只有 left 的 shown 被截断,tips(如行号范围)
+ * 始终完整显示。HStack gap=1 保证 left 与 right 之间留 1 字符 padding。
  *
  * HStack.render(width) 先测各子组件 intrinsic 宽度(Intrinsic = render(safeWidth) 的可见宽,
  * 但 BgTruncatedText 输出恒 pad 到 width → intrinsic 恒等于 safeWidth,会误导分配),
@@ -253,16 +257,20 @@ export function buildBlockComponent(
   bgFn: (line: string) => string,
 ): Component {
   const left = buildLeft(text);
+  const tips = (text.tips ?? "").trim();
   const right = buildRight(text);
   const leftW = visibleWidth(left);
+  const tipsW = visibleWidth(tips);
   const rightW = visibleWidth(right);
-  const hstack = new HStack(
-    [
-      { component: new BgTruncatedText(left, bgFn), basis: leftW, grow: 1, shrink: 1, minSize: 0 },
-      { component: new BgTruncatedText(right, bgFn), basis: rightW, grow: 0, shrink: 0 },
-    ],
-    { gap: 0, align: "stretch" },
-  );
+  const children: StackChild[] = [
+    { component: new BgTruncatedText(left, bgFn), basis: leftW, grow: 1, shrink: 1, minSize: 0 },
+  ];
+  // tips 为空时不插入中间槽,避免 HStack 对零宽 entry 也加 gap(会导致 left/right 间隙 2 字符)
+  if (tipsW > 0) {
+    children.push({ component: new BgTruncatedText(tips, bgFn), basis: tipsW, grow: 0, shrink: 0 });
+  }
+  children.push({ component: new BgTruncatedText(right, bgFn), basis: rightW, grow: 0, shrink: 0 });
+  const hstack = new HStack(children, { gap: 1, align: "stretch" });
   return new BgPaddedBox(hstack, 1, 1, bgFn);
 }
 

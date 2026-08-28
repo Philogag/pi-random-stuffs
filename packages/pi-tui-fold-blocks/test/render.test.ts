@@ -1,123 +1,135 @@
 import { describe, it, expect } from "vitest";
-import type { Theme } from "@earendil-works/pi-coding-agent";
 import {
   buildReadBlockText,
+  buildWriteBlockText,
+  buildEditBlockText,
   buildBashBlockText,
   contentExitCode,
-  renderBlock,
-  type RenderBlockOpts,
+  buildBlockComponent,
+  type LineContext,
 } from "../src/render.js";
-import type { ToolRenderContext } from "../src/overrides.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
+import type { ToolRenderContext } from "../src/overrides.js";
 
-// 最小 fixture:这些用例不真正渲染,theme 用恒等函数占位即可。
-function makeCtx(overrides: Partial<ToolRenderContext> = {}): ToolRenderContext {
+const CWD = "/home/u/p";
+
+function makeCtx(args: unknown, partial: { isError?: boolean } = {}): ToolRenderContext {
   return {
-    args: {},
+    args,
     toolCallId: "t1",
     invalidate: () => {},
     lastComponent: undefined,
     state: undefined,
-    cwd: "/home/u/p",
+    cwd: CWD,
     executionStarted: true,
     argsComplete: true,
     isPartial: false,
     expanded: false,
     showImages: false,
-    isError: false,
-    ...overrides,
+    isError: partial.isError ?? false,
   };
 }
 
-function makeOpts(overrides: Partial<RenderBlockOpts> = {}): RenderBlockOpts {
-  return {
-    name: "read",
-    stage: "call",
-    args: {},
-    cwd: "/home/u/p",
-    config: DEFAULT_CONFIG,
-    theme: { bg: () => (t: string) => t } as unknown as Theme,
-    ...overrides,
-  };
+/** 去掉 ANSI SGR 与 OSC 链接标记(compositeTuiLine 的 SEGMENT_RESET)。 */
+function stripAnsi(s: string): string {
+  return s.replace(/\x1b\[[0-9;]*m/g, "").replace(/\x1b\][^\x07]*\x07/g, "");
 }
 
-describe("contentExitCode", () => {
-  it("从 content 文本提取 exit code N", () => {
-    expect(contentExitCode({ content: [{ type: "text", text: "boom\nexit code 2" }] })).toBe(2);
+describe("buildReadBlockText", () => {
+  it("shown 为折叠路径,tips 为行号范围", () => {
+    const t = buildReadBlockText(makeCtx({ path: "src/main.ts", offset: 10, limit: 20 }), {
+      name: "read", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.shown).toContain("src/main.ts");
+    expect(t.tips).toBe("[ 10 - 29 ]");
+    expect(t.result).toBe("OK");
   });
-  it("无 exit code 返回 undefined", () => {
-    expect(contentExitCode({ content: [{ type: "text", text: "ok" }] })).toBeUndefined();
+  it("无 limit 时行号范围以 ? 结尾", () => {
+    const t = buildReadBlockText(makeCtx({ path: "a.ts", offset: 5 }), {
+      name: "read", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.tips).toBe("[ 5 - ? ]");
   });
-  it("空结果返回 undefined", () => {
-    expect(contentExitCode({})).toBeUndefined();
+  it("错误时 result 为 FAILED", () => {
+    const t = buildReadBlockText(makeCtx({ path: "a.ts" }, { isError: true }), {
+      name: "read", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.result).toBe("FAILED");
+  });
+  it("调用阶段 result 为空", () => {
+    const t = buildReadBlockText(makeCtx({ path: "a.ts" }), {
+      name: "read", stage: "call", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.result).toBe("");
   });
 });
 
-describe("buildReadBlockText", () => {
-  it("tool 为 read,shown 含折叠路径,tips 为行号区间", () => {
-    const line = buildReadBlockText(
-      makeCtx({ args: { path: "src/main.ts", offset: 10, limit: 20 } }),
-      makeOpts(),
-    );
-    expect(line.tool).toBe("read");
-    expect(line.shown).toContain("src/main.ts");
-    expect(line.tips).toBe("[ 10 - 29 ]");
+describe("buildWriteBlockText", () => {
+  it("tips 为新增行数", () => {
+    const t = buildWriteBlockText(makeCtx({ path: "a.ts", content: "x\ny\nz" }), {
+      name: "write", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.shown).toContain("a.ts");
+    expect(t.tips).toBe("[ +3 ]");
   });
-  it("call 阶段 result 为空字符串", () => {
-    const line = buildReadBlockText(makeCtx({ args: { path: "a.ts" } }), makeOpts());
-    expect(line.result).toBe("");
-  });
-  it("result 阶段成功返回 OK", () => {
-    const line = buildReadBlockText(
-      makeCtx({ args: { path: "a.ts" } }),
-      makeOpts({ stage: "result" }),
-    );
-    expect(line.result).toBe("OK");
-  });
-  it("isError 时返回 FAILED", () => {
-    const line = buildReadBlockText(
-      makeCtx({ args: { path: "a.ts" }, isError: true }),
-      makeOpts({ stage: "result" }),
-    );
-    expect(line.result).toBe("FAILED");
+});
+
+describe("buildEditBlockText", () => {
+  it("tips 为删除/新增行数", () => {
+    const t = buildEditBlockText(makeCtx({ path: "a.ts", edits: [{ oldText: "a\nb", newText: "x" }] }), {
+      name: "edit", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.tips).toBe("[ -2, +1 ]");
   });
 });
 
 describe("buildBashBlockText", () => {
-  it("tool 为 exec,shown 含命令摘要(smart 折叠 cd 前缀)", () => {
-    const line = buildBashBlockText(
-      makeCtx({ args: { command: "cd build && npm test" } }),
-      makeOpts({ name: "bash" }),
-    );
-    expect(line.tool).toBe("exec");
-    expect(line.shown).toContain("npm test");
+  it("shown 为智能摘要,tips 为超时", () => {
+    const t = buildBashBlockText(makeCtx({ command: "cd build && npm test", timeout: 30 }), {
+      name: "bash", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.shown).toContain("npm test");
+    expect(t.tips).toBe("[ 30s ]");
   });
-  it("result 阶段成功返回 OK", () => {
-    const line = buildBashBlockText(
-      makeCtx({ args: { command: "npm test" } }),
-      makeOpts({ name: "bash", stage: "result" }),
-    );
-    expect(line.result).toBe("OK");
-  });
-  it("isError 时返回 FAILED(退出码)", () => {
-    const line = buildBashBlockText(
-      makeCtx({ args: { command: "npm test" }, isError: true }),
-      makeOpts({
-        name: "bash",
-        stage: "result",
-        result: { content: [{ type: "text", text: "exit code 2" }] },
-      }),
-    );
-    expect(line.result).toBe("FAILED(2)");
+  it("错误时 result 含退出码", () => {
+    const t = buildBashBlockText(makeCtx({ command: "ls" }, { isError: true }), {
+      name: "bash", stage: "result", args: {}, result: { content: [{ type: "text", text: "boom\nexit code 2" }] }, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.result).toBe("FAILED(2)");
   });
 });
 
-describe("renderBlock", () => {
-  it("hide 模式渲染 0 行", () => {
-    const component = renderBlock(
-      makeCtx({ args: { path: "a.ts" } }),
-      makeOpts({ stage: "result", config: { ...DEFAULT_CONFIG, mode: "hide" } }),
-    );
-    expect(component.render(80)).toEqual([]);
+describe("contentExitCode", () => {
+  it("提取 exit code N", () => {
+    expect(contentExitCode({ content: [{ type: "text", text: "boom\nexit code 2" }] })).toBe(2);
+    expect(contentExitCode({ content: [{ type: "text", text: "ok" }] })).toBeUndefined();
+  });
+});
+
+describe("buildBlockComponent", () => {
+  const bg = (t: string) => t; // 恒等 bgFn,无 ANSI
+  const text: LineContext = { icon: "", tool: "read", shown: "src/main.ts", tips: "[ 10 - 29 ]", result: "OK" };
+
+  it("tips 完整显示,不被截断(窄宽度下仅 left 截断)", () => {
+    const lines = buildBlockComponent(text, bg).render(24);
+    const content = lines.map(stripAnsi).join("\n");
+    expect(content).toContain("[ 10 - 29 ]");
+    expect(content).toContain("OK");
+  });
+
+  it("left 与 right 之间保留至少 1 字符 padding", () => {
+    const noTips: LineContext = { icon: "", tool: "read", shown: "a.ts", tips: "", result: "OK" };
+    const lines = buildBlockComponent(noTips, bg).render(30);
+    const content = lines.map(stripAnsi).join("\n");
+    // shown 后至少 1 空格,再是 OK(而非紧贴)
+    expect(content).toMatch(/a\.ts\s+OK/);
+  });
+
+  it("宽宽度下 shown 完整 + tips + 右对齐 OK", () => {
+    const lines = buildBlockComponent(text, bg).render(60);
+    const content = lines.map(stripAnsi).join("\n");
+    expect(content).toContain("src/main.ts");
+    expect(content).toContain("[ 10 - 29 ]");
+    expect(content).toContain("OK");
   });
 });
