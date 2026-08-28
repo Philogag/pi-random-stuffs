@@ -1,6 +1,8 @@
 // src/index.ts
+import { access } from "node:fs/promises";
+import * as path from "node:path";
 import { runOpenspecStatus } from "./openspec.js";
-import { readMergedTasks } from "./merge.js";
+import { mergeStatusResults, readMergedTasks } from "./merge.js";
 import { parseBashCommand } from "./parser.js";
 import { renderLine } from "./render.js";
 
@@ -44,7 +46,20 @@ function isBashInput(e: unknown): e is { input: BashToolCallInput } {
   );
 }
 
-export default function piTuiOpenspecStatus(pi: PiLike, ctx?: ExtensionContextLike) {
+export interface PiTuiOpenspecStatusOptions {
+  /**
+   * Override the render debounce window (ms). Defaults to
+   * {@link SET_STATUS_DEBOUNCE_MS}. Tests typically pass a small value
+   * (e.g. 0) to skip debouncing entirely.
+   */
+  debounceMs?: number;
+}
+
+export default function piTuiOpenspecStatus(
+  pi: PiLike,
+  ctx?: ExtensionContextLike,
+  options: PiTuiOpenspecStatusOptions = {},
+) {
   // D9: TUI-mode exclusive activation. When pi is not running in its
   // interactive terminal mode, the extension is COMPLETELY INACTIVE.
   // We early-return WITHOUT registering any event listeners, starting
@@ -59,6 +74,8 @@ export default function piTuiOpenspecStatus(pi: PiLike, ctx?: ExtensionContextLi
   // is the safest gate.
   if (ctx?.mode !== "tui") return;
 
+  const debounceMs = options.debounceMs ?? SET_STATUS_DEBOUNCE_MS;
+
   let lockedChange: string | undefined;
   let effectiveCwd = "";
   let lastRendered = "";
@@ -68,15 +85,57 @@ export default function piTuiOpenspecStatus(pi: PiLike, ctx?: ExtensionContextLi
     pending = undefined;
     if (!lockedChange) return;
     try {
-      const cwd = effectiveCwd || ctx.cwd;
-      const status = await runOpenspecStatus(lockedChange, cwd);
-      const tasks = await readMergedTasks(
-        lockedChange,
-        ctx.cwd,
-        effectiveCwd || undefined,
+      const name = lockedChange;
+      const mainCwd = ctx.cwd;
+      const wtCwd = effectiveCwd || "";
+
+      // Sources to scan, in priority order. Main is always scanned
+      // (canonical source of truth). When a worktree is active, the
+      // worktree is scanned in ADDITION to main — the displayed status
+      // is the union of both.
+      type Source = { cwd: string; kind: "main" | "worktree" };
+      const sources: Source[] = [{ cwd: mainCwd, kind: "main" }];
+      if (wtCwd) sources.push({ cwd: wtCwd, kind: "worktree" });
+
+      // Probe each source's change folder in parallel. A missing folder
+      // is "skip this source", not "fail the render". Only when ALL
+      // sources are gone do we treat the change as fully archived and
+      // unlock — see the R unlock conditions.
+      const aliveFlags = await Promise.all(
+        sources.map(async (s) => {
+          const dir = path.join(s.cwd, "openspec", "changes", name);
+          try {
+            await access(dir);
+            return true;
+          } catch {
+            return false;
+          }
+        }),
       );
+      const aliveSources = sources.filter((_, i) => aliveFlags[i]);
+
+      if (aliveSources.length === 0) {
+        // Fully archived (or all worktrees removed): release the lock.
+        lockedChange = undefined;
+        effectiveCwd = "";
+        if (lastRendered !== "") {
+          lastRendered = "";
+          ctx.ui.setStatus(EXTENSION_ID, undefined);
+        }
+        return;
+      }
+
+      // Query each alive source in parallel; merge artifacts/schema.
+      const [statusResults, tasks] = await Promise.all([
+        Promise.all(
+          aliveSources.map((s) => runOpenspecStatus(name, s.cwd)),
+        ),
+        readMergedTasks(name, mainCwd, wtCwd || undefined),
+      ]);
+      const status = mergeStatusResults(statusResults);
+
       const line = renderLine(
-        lockedChange,
+        name,
         (status?.schemaName as string) || "spec-driven",
         (status?.artifacts ?? []) as never,
         tasks,
@@ -91,7 +150,7 @@ export default function piTuiOpenspecStatus(pi: PiLike, ctx?: ExtensionContextLi
 
   const schedule = () => {
     if (pending) return;
-    pending = setTimeout(render, SET_STATUS_DEBOUNCE_MS);
+    pending = setTimeout(render, debounceMs);
   };
 
   pi.on("session_start", () => {

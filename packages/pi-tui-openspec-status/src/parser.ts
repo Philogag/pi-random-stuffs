@@ -6,6 +6,10 @@ const LOCKING_SUBCOMMANDS: ReadonlySet<string> = new Set([
   "sync", "instructions", "show", "validate", "context", "view",
 ]);
 
+// `openspec new` takes a depth-2 verb: `new change <name>` or `new spec <name>`.
+// `new` alone (e.g. `openspec new --help`) has no name token.
+const NEW_SUBVERBS: ReadonlySet<string> = new Set(["change", "spec"]);
+
 export function isLockingSubcommand(sub: string): boolean {
   return LOCKING_SUBCOMMANDS.has(sub);
 }
@@ -63,10 +67,23 @@ export function tokenize(cmd: string): string[] {
 /**
  * From a token list starting with the openspec subcommand
  * (e.g. ["status", "--change", "add-foo", "--json"]),
- * find the change name. Skips the leading subcommand token.
+ * find the change name. Skips the leading subcommand token(s).
+ *
+ * Special-cases `new`: its sub-verb (`change` | `spec`) sits between the
+ * subcommand and the name, so we skip 2 tokens for `openspec new change foo`
+ * but only 1 for `openspec status --change foo` / `openspec archive foo`.
  */
 export function extractChangeName(tokens: string[]): string | undefined {
-  for (let i = 1; i < tokens.length; i++) {
+  if (tokens.length === 0) return undefined;
+  let start = 1;
+  if (
+    tokens[0] === "new" &&
+    tokens.length >= 2 &&
+    NEW_SUBVERBS.has(tokens[1]!)
+  ) {
+    start = 2;
+  }
+  for (let i = start; i < tokens.length; i++) {
     if (tokens[i] === "--change") {
       const v = tokens[i + 1];
       if (v && !v.startsWith("--")) return v;
