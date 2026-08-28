@@ -13,12 +13,12 @@ export function cfgToBool(value: string): boolean {
 
 export function buildSettingItems(cfg: FoldBlocksConfig): SettingItem[] {
   return [
-    { id: "mode", label: "Mode", currentValue: cfg.mode, values: ["fold", "hide", "native"] },
+    { id: "mode", label: "Fold Mode", currentValue: cfg.mode, values: ["fold", "hide", "native"] },
     { id: "nerdFont", label: "Nerd font icons", currentValue: boolToCfg(cfg.nerdFont), values: ["on", "off"] },
-    { id: "fileBlocks.pathStyle", label: "Path style", currentValue: cfg.fileBlocks.pathStyle, values: ["relative", "absolute", "basename"] },
+    { id: "fileBlocks.pathStyle", label: "Fold path style", currentValue: cfg.fileBlocks.pathStyle, values: ["relative", "absolute", "basename"] },
     { id: "fileBlocks.foldGitWorktree", label: "Fold git worktree", currentValue: boolToCfg(cfg.fileBlocks.foldGitWorktree), values: ["on", "off"] },
-    { id: "bashBlocks.smart", label: "Bash smart detection", currentValue: boolToCfg(cfg.bashBlocks.smart), values: ["on", "off"] },
-    { id: "bashBlocks.showStatus", label: "Show status hints", currentValue: boolToCfg(cfg.bashBlocks.showStatus), values: ["on", "off"] },
+    { id: "bashBlocks.smart", label: "Fold bash call", currentValue: boolToCfg(cfg.bashBlocks.smart), values: ["on", "off"] },
+    { id: "bashBlocks.showStatus", label: "Show bash status hints", currentValue: boolToCfg(cfg.bashBlocks.showStatus), values: ["on", "off"] },
   ];
 }
 

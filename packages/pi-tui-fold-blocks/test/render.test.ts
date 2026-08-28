@@ -5,6 +5,7 @@ import {
   buildEditBlockText,
   buildBashBlockText,
   contentExitCode,
+  contentLineCount,
   buildBlockComponent,
   type LineContext,
 } from "../src/render.js";
@@ -49,6 +50,18 @@ describe("buildReadBlockText", () => {
       name: "read", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
     });
     expect(t.tips).toBe("[ 5 - ? ]");
+  });
+  it("默认 1-? 时隐藏 tips(无 offset 无 limit)", () => {
+    const t = buildReadBlockText(makeCtx({ path: "a.ts" }), {
+      name: "read", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.tips).toBe("");
+  });
+  it("显式 offset=1 同样隐藏 tips(等价于 1-?)", () => {
+    const t = buildReadBlockText(makeCtx({ path: "a.ts", offset: 1 }), {
+      name: "read", stage: "result", args: {}, result: undefined, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.tips).toBe("");
   });
   it("错误时 result 为 FAILED", () => {
     const t = buildReadBlockText(makeCtx({ path: "a.ts" }, { isError: true }), {
@@ -97,12 +110,52 @@ describe("buildBashBlockText", () => {
     });
     expect(t.result).toBe("FAILED(2)");
   });
+  it("成功 + 有输出 → tips 含行数", () => {
+    const t = buildBashBlockText(makeCtx({ command: "ls" }), {
+      name: "bash", stage: "result", args: {}, result: { content: [{ type: "text", text: "a\nb\nc" }] }, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.tips).toBe("[ 3 lines ]");
+  });
+  it("成功 + 超时 + 有输出 → tips 拼接 [ Ns, N lines ]", () => {
+    const t = buildBashBlockText(makeCtx({ command: "build", timeout: 30 }), {
+      name: "bash", stage: "result", args: {}, result: { content: [{ type: "text", text: "ok\ndone" }] }, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.tips).toBe("[ 30s, 2 lines ]");
+  });
+  it("成功 + 空输出 → tips 不显示行数(避免 [ 0行 ] 噪声)", () => {
+    const t = buildBashBlockText(makeCtx({ command: "true" }), {
+      name: "bash", stage: "result", args: {}, result: { content: [{ type: "text", text: "" }] }, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.tips).toBe("");
+  });
+  it("失败 + 有输出 + 退出码 → tips 含行数与 exit", () => {
+    const t = buildBashBlockText(makeCtx({ command: "ls" }, { isError: true }), {
+      name: "bash", stage: "result", args: {}, result: { content: [{ type: "text", text: "boom\nfail\nexit code 2" }] }, cwd: CWD, config: DEFAULT_CONFIG, theme: undefined as never,
+    });
+    expect(t.tips).toBe("[ 3 lines, exit 2 ]");
+  });
 });
 
 describe("contentExitCode", () => {
   it("提取 exit code N", () => {
     expect(contentExitCode({ content: [{ type: "text", text: "boom\nexit code 2" }] })).toBe(2);
     expect(contentExitCode({ content: [{ type: "text", text: "ok" }] })).toBeUndefined();
+  });
+});
+
+describe("contentLineCount", () => {
+  it("多行文本(含空行)正确计数", () => {
+    expect(contentLineCount({ content: [{ type: "text", text: "a\nb\nc" }] })).toBe(3);
+    expect(contentLineCount({ content: [{ type: "text", text: "a\n\nc" }] })).toBe(3);
+  });
+  it("末尾 \\n 不计独立行", () => {
+    expect(contentLineCount({ content: [{ type: "text", text: "a\nb\n" }] })).toBe(2);
+    expect(contentLineCount({ content: [{ type: "text", text: "\n" }] })).toBe(1);
+    expect(contentLineCount({ content: [{ type: "text", text: "" }] })).toBe(0);
+  });
+  it("result 缺失/为空 → 0", () => {
+    expect(contentLineCount(undefined)).toBe(0);
+    expect(contentLineCount({ content: [] })).toBe(0);
   });
 });
 

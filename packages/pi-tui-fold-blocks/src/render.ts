@@ -38,14 +38,17 @@ export function buildReadBlockText(ctx: ToolRenderContext, opts: RenderBlockOpts
   const shown = foldPath(args.path ?? "", { cwd: opts.cwd, style: opts.config.fileBlocks.pathStyle, foldGitWorktree: opts.config.fileBlocks.foldGitWorktree });
   const startLine = args.offset ?? 1;
   const endLine = args.limit !== undefined ? startLine + args.limit - 1 : "?";
+  // 默认读整文件(offset 缺省 + limit 缺省)→ 显示为 "1-?",纯噪声,隐藏。
+  // 显式 offset=1 同样落到 1-?,一并隐藏(等价于不写 offset)。
+  const tips = (startLine === 1 && endLine === "?") ? "" : `[ ${startLine} - ${endLine} ]`;
   return {
     icon: opts.config.nerdFont ? "\udb85\uddd6" : "",
     tool: "read",
     shown: shown,
-    tips: `[ ${startLine} - ${endLine} ]`,
-    result: opts.stage === "call" ? "" 
-            :ctx.isError ? "FAILED" 
-              : "OK"
+    tips: tips,
+    result: opts.stage === "call" ? ""
+                     :ctx.isError ? "FAILED"
+                                  : "SUCCESS"
   }
 }
 
@@ -63,8 +66,8 @@ export function buildWriteBlockText(ctx: ToolRenderContext, opts: RenderBlockOpt
     shown: shown,
     tips: `[ +${rowCount} ]`,
     result: opts.stage === "call" ? "" 
-            :ctx.isError ? "FAILED" 
-              : "OK"
+                     :ctx.isError ? "FAILED" 
+                                  : "SUCCESS"
   }
 }
 
@@ -84,8 +87,8 @@ export function buildEditBlockText(ctx: ToolRenderContext, opts: RenderBlockOpts
     shown: shown,
     tips: `[ -${countOldRows}, +${countNewRows} ]`,
     result: opts.stage === "call" ? "" 
-            :ctx.isError ? "FAILED" 
-              : "OK"
+                    : ctx.isError ? "FAILED" 
+                                  : "SUCCESS"
   }
 }
 
@@ -96,8 +99,8 @@ export function buildGrepBlockText(ctx: ToolRenderContext, opts: RenderBlockOpts
     shown: "",
     tips: "",
     result: opts.stage === "call" ? "" 
-          : ctx.isError ? "FAILED" 
-              : "OK"
+                    : ctx.isError ? "FAILED" 
+                                  : "SUCCESS"
   }
 }
 
@@ -108,8 +111,8 @@ export function buildLsBlockText(ctx: ToolRenderContext, opts: RenderBlockOpts):
     shown: "",
     tips: "",
     result: opts.stage === "call" ? "" 
-          : ctx.isError ? "FAILED" 
-              : "OK"
+                    : ctx.isError ? "FAILED" 
+                                  : "SUCCESS"
   }
 }
 
@@ -125,24 +128,44 @@ export function contentExitCode(result: unknown): number | undefined {
   const m = /exit code (\d+)/i.exec(text);
   return m ? Number(m[1]) : undefined;
 }
+/** 从 AgentToolResult.content 统计输出行数(含空行);result 缺失/为空 → 0。
+ * 末尾 "\n" 不计独立行,这是文本文件/管道输出的常见约定("a\nb\n" = 2 行而非 3)。 */
+export function contentLineCount(result: unknown): number {
+  const content = (result as { content?: { text?: string }[] } | undefined)?.content;
+  if (!Array.isArray(content) || content.length === 0) return 0;
+  const text = content.map((c) => c.text ?? "").join("");
+  if (text === "") return 0;
+  const lines = text.split("\n");
+  return lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
+}
 export function buildBashBlockText(ctx: ToolRenderContext, opts: RenderBlockOpts): LineContext {
   const args = ctx.args as BashArgsSchema;
   const shown = foldCommand(args.command, { smart: opts.config.bashBlocks.smart });
-  const errorCode = contentExitCode(opts.result)
+  // 仅在 result 阶段提取统计量:call 阶段 opts.result 尚未就绪,提取无意义。
+  const errorCode = opts.stage === "result" ? contentExitCode(opts.result) : undefined;
+  const lineCount = opts.stage === "result" ? contentLineCount(opts.result) : undefined;
+  // tips 仅在确有信息时显示,各段用 ", " 拼接。
+  // 行数:output 行数(含空行);0 行不显示(空输出挂个 [ 0 lines ] 是噪声)。
+  // exit 码:仅 failed 时显示,与 result 的 FAILED(M) 互补。
+  const tipParts: string[] = [];
+  if (args.timeout !== undefined) tipParts.push(`${args.timeout}s`);
+  if (lineCount !== undefined && lineCount > 0) tipParts.push(`${lineCount} lines`);
+  if (ctx.isError && errorCode !== undefined && errorCode !== 0) tipParts.push(`exit ${errorCode}`);
+  const tips = tipParts.length > 0 ? `[ ${tipParts.join(", ")} ]` : "";
   return {
     icon: opts.config.nerdFont ? "\uf489" : "",
     tool: "exec",
     shown: shown,
-    tips: args.timeout ? `[ ${args.timeout}s ]` : "",
-    result: opts.stage === "call" ? "" 
-            :ctx.isError ? `FAILED(${errorCode})`
-              : "OK"
+    tips: tips,
+    result: opts.stage === "call" ? ""
+                    : ctx.isError ? (errorCode !== undefined ? `FAILED(${errorCode})` : "FAILED")
+                                  : "SUCCESS"
   }
 }
 
 /** 左半段:icon + tool + shown(tips 独立成段,保证折叠时不丢失)。 */
 function buildLeft(text: LineContext): string {
-  return `${text.icon ?? ""} ${text.tool} > ${text.shown}`.trim();
+  return `${text.icon ?? ""} ${text.tool} - ${text.shown}`.trim();
 }
 
 /** 右半段:result / 退出码。 */
