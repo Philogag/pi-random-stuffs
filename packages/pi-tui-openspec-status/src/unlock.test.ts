@@ -30,12 +30,16 @@ const mockedRunOpenspecStatus = vi.mocked(runOpenspecStatus);
 
 function makePi() {
   const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
+  const commands: string[] = [];
   return {
     on(event: string, h: (...a: unknown[]) => void) {
       (listeners[event] ??= []).push(h);
     },
     fire(event: string, ...args: unknown[]) {
       (listeners[event] ?? []).forEach((h) => h(...args));
+    },
+    registerCommand(name: string, _opts: unknown) {
+      commands.push(name);
     },
   };
 }
@@ -47,7 +51,9 @@ interface CallRecord {
 
 /** Drain queued microtasks + the setTimeout(0) used for debounce. */
 async function tick() {
-  await new Promise<void>((r) => setTimeout(r, 5));
+  // 50ms headroom: the render chain does real fs ops (access/readFile),
+  // which can exceed a tiny window under parallel suite load.
+  await new Promise<void>((r) => setTimeout(r, 50));
   await new Promise((r) => setImmediate(r));
   await new Promise((r) => setImmediate(r));
 }

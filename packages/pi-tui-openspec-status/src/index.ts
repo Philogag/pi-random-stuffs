@@ -2,6 +2,7 @@
 import { access } from "node:fs/promises";
 import * as path from "node:path";
 import { runOpenspecStatus } from "./openspec.js";
+import { listActiveChanges } from "./discover.js";
 import { mergeStatusResults, readMergedTasks } from "./merge.js";
 import { parseBashCommand } from "./parser.js";
 import { renderLine } from "./render.js";
@@ -29,6 +30,24 @@ interface PiLike {
   on(
     event: "tool_result",
     handler: (event: unknown) => Promise<void> | void,
+  ): void;
+  registerCommand(
+    name: string,
+    options: {
+      description?: string;
+      handler: (
+        args: string,
+        cmdCtx: {
+          cwd: string;
+          ui: {
+            select(
+              prompt: string,
+              items: string[],
+            ): Promise<string | undefined>;
+          };
+        },
+      ) => Promise<void> | void;
+    },
   ): void;
 }
 
@@ -77,6 +96,7 @@ export default function piTuiOpenspecStatus(
   const debounceMs = options.debounceMs ?? SET_STATUS_DEBOUNCE_MS;
 
   let lockedChange: string | undefined;
+  let manualLock = false;
   let effectiveCwd = "";
   let lastRendered = "";
   let pending: ReturnType<typeof setTimeout> | undefined;
@@ -118,6 +138,7 @@ export default function piTuiOpenspecStatus(
         // Fully archived (or all worktrees removed): release the lock.
         lockedChange = undefined;
         effectiveCwd = "";
+        manualLock = false;
         if (lastRendered !== "") {
           lastRendered = "";
           ctx.ui.setStatus(EXTENSION_ID, undefined);
@@ -164,7 +185,11 @@ export default function piTuiOpenspecStatus(
     if (typeof cmd !== "string") return;
     const parsed = parseBashCommand(cmd);
     if (!parsed) return;
-    if (parsed.isWorktree) effectiveCwd = parsed.effectiveCwd;
+    if (parsed.isWorktree && parsed.effectiveCwd !== effectiveCwd) {
+      effectiveCwd = parsed.effectiveCwd;
+      schedule();
+    }
+    if (manualLock) return; // manual selection overrides auto-lock
     if (parsed.isLocking && parsed.changeName) {
       lockedChange = parsed.changeName;
       schedule();
@@ -173,5 +198,30 @@ export default function piTuiOpenspecStatus(
 
   pi.on("tool_result", () => {
     if (lockedChange) schedule();
+  });
+
+  pi.registerCommand("tui-openspec-select", {
+    description:
+      "Manually select which openspec change the status bar tracks (None to clear)",
+    handler: async (_args, cmdCtx) => {
+      const changes = await listActiveChanges(cmdCtx.cwd);
+      const choice = await cmdCtx.ui.select("Select spec to track:", [
+        ...changes,
+        "None",
+      ]);
+      if (choice === undefined) return; // cancelled — no side effects
+      if (choice === "None") {
+        manualLock = false;
+        lockedChange = undefined;
+        if (lastRendered !== "") {
+          lastRendered = "";
+          ctx.ui.setStatus(EXTENSION_ID, undefined);
+        }
+        return;
+      }
+      lockedChange = choice;
+      manualLock = true;
+      schedule();
+    },
   });
 }

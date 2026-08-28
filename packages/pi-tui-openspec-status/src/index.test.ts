@@ -3,6 +3,7 @@ import piTuiOpenspecStatus from "./index.js";
 
 function makePi() {
   const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
+  const commands: string[] = [];
   return {
     on(event: string, h: (...a: unknown[]) => void) {
       (listeners[event] ??= []).push(h);
@@ -12,6 +13,9 @@ function makePi() {
     },
     listenerCount(event: string) {
       return (listeners[event] ?? []).length;
+    },
+    registerCommand(name: string, _opts: unknown) {
+      commands.push(name);
     },
   };
 }
