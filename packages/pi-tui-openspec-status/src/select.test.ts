@@ -112,6 +112,33 @@ describe("piTuiOpenspecStatus — /tui-openspec-select", () => {
     expect(mockedRunOpenspecStatus).not.toHaveBeenCalled();
   });
 
+  it("None picked mid-render does not republish the stale status line", async () => {
+    mockedListActiveChanges.mockResolvedValue(["alpha"]);
+    mkdirSync(path.join(tmpRoot, "openspec", "changes", "alpha"), { recursive: true });
+
+    // Hold the alpha status query open so the render stays in flight.
+    let resolveStatus!: (v: never) => void;
+    const deferred = new Promise<never>((resolve) => {
+      resolveStatus = resolve;
+    });
+    mockedRunOpenspecStatus.mockReturnValue(deferred);
+
+    // Start a manual lock; the render now awaits the deferred status call.
+    await pi.runCommand("", ctxFor(tmpRoot, () => Promise.resolve("alpha")));
+    await vi.waitFor(() => {
+      expect(mockedRunOpenspecStatus).toHaveBeenCalled();
+    });
+
+    // Pick None while the render is still in flight — clears the lock.
+    await pi.runCommand("", ctxFor(tmpRoot, () => Promise.resolve("None")));
+
+    // Let the stale render finish; it must NOT republish the old line.
+    resolveStatus({ schemaName: "spec-driven", applied: false, artifacts: [] } as never);
+    await tick();
+
+    expect(statuses).toHaveLength(0);
+  });
+
   it("manual lock overrides bash auto-lock", async () => {
     mockedListActiveChanges.mockResolvedValue(["alpha"]);
     mockedRunOpenspecStatus.mockResolvedValue({

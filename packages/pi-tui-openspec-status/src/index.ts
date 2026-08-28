@@ -155,6 +155,8 @@ export default function piTuiOpenspecStatus(
       ]);
       const status = mergeStatusResults(statusResults);
 
+      if (lockedChange !== name) return; // cleared or re-locked mid-render — don't republish stale line
+
       const line = renderLine(
         name,
         (status?.schemaName as string) || "spec-driven",

@@ -39,10 +39,11 @@ Per `pi.dev/docs/latest/extensions#ctx-mode`, `ctx.mode` (not
 
 ## Behavior
 
-- The status line only appears when you (or the agent) invoke an
+- The status line appears when you (or the agent) invoke an
   openspec command that **explicitly names a change** —
   `new`, `status`, `apply`, `archive`, `verify`, `sync`,
-  `instructions`, `show`, `validate`, `context`, `view`.
+  `instructions`, `show`, `validate`, `context`, `view` — **or** when
+  you manually select a change with `/tui-openspec-select`.
 - Browsing commands like `openspec list` / `openspec doctor` clear the
   status line.
 - The line refreshes 500ms after each matching `bash` tool call.
