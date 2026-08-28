@@ -23,7 +23,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.mode !== "tui") return;
     pi.registerCommand("tui-fold-blocks", {
-      description: "打开 tui-fold-blocks 配置页面",
+      description: "Open tui-fold-blocks settings page",
       handler: async (args: string, ctx: ExtensionCommandContext) => {
         await openSettings(ctx.ui, config, (next) => {
           config = next;
