@@ -38,18 +38,17 @@ ln -s "$PWD/packages/pi-tui-fold-blocks" ~/.pi/agent/extensions/pi-tui-fold-bloc
 
 ## 使用
 
-### 命令:`/tui-fold-blocks`
+## Settings
 
-打开配置页面,交互式修改以下选项并保存(写入 `settings.json` 的 `@philogag/pi-tui-fold-blocks` 块):
+Run `/tui-fold-blocks` to open the settings page. The page follows pi's
+native settings interaction:
 
-| 选项 | 说明 | 默认 |
-| --- | --- | --- |
-| 模式 | `fold` / `hide` / `native` | `fold` |
-| nerd font 图标 | 是否显示 nerd font 图标 | 开 |
-| 路径样式 | `relative` / `absolute` / `basename` | `relative` |
-| git worktree 折叠 | 是否折叠 worktree 路径前缀 | 开 |
-| bash 智能识别 | 是否智能摘要 bash 命令 | 开 |
-| 状态提示 | bash 块右侧是否显示状态(退出码等) | 开 |
+- Single select list with all options (Mode, Nerd font icons, Path style,
+  Fold git worktree, Bash smart detection, Show status hints).
+- `↑`/`↓` to navigate, `Space` to cycle the selected option's value
+  (booleans cycle `on`/`off`, enums cycle their choices).
+- Changes are saved to `settings.json` immediately.
+- `Esc` closes the page.
 
 ### 手动配置
 
