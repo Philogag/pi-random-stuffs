@@ -1,6 +1,7 @@
 // src/openspec.ts
 import { spawn } from "node:child_process";
 import type { StatusJson } from "./types.js";
+import { clearTimeout } from "node:timers";
 
 export const OPENSPEC_STATUS_TIMEOUT_MS = 2000;
 

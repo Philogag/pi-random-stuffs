@@ -23,8 +23,8 @@ vi.mock("./openspec.js", () => ({
   runOpenspecStatus: vi.fn(),
 }));
 
-import piTuiOpenspecStatus from "./index.js";
-import { runOpenspecStatus } from "./openspec.js";
+import piTuiOpenspecStatus from "../src/index.js";
+import { runOpenspecStatus } from "../src/openspec.js";
 
 const mockedRunOpenspecStatus = vi.mocked(runOpenspecStatus);
 

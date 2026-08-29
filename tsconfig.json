@@ -1,4 +1,7 @@
 {
   "files": [],
-  "references": [{ "path": "./packages/pi-tui-fold-blocks" }]
+  "references": [
+    { "path": "./packages/pi-tui-fold-blocks" },
+    { "path": "./packages/pi-tui-openspec-status" }
+  ]
 }

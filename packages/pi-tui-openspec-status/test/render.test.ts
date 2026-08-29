@@ -1,7 +1,7 @@
 // src/render.test.ts
 import { describe, expect, it } from "vitest";
-import type { ArtifactStatus } from "./types.js";
-import { formatArtifactTokens, formatProgressBar, renderLine } from "./render.js";
+import type { ArtifactStatus } from "../src/types.js";
+import { formatArtifactTokens, formatProgressBar, renderLine } from "../src/render.js";
 
 describe("formatArtifactTokens", () => {
   it("uses ● for done and ○ otherwise", () => {

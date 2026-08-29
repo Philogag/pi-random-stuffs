@@ -7,9 +7,9 @@ import * as path from "node:path";
 vi.mock("./openspec.js", () => ({ runOpenspecStatus: vi.fn() }));
 vi.mock("./discover.js", () => ({ listActiveChanges: vi.fn() }));
 
-import piTuiOpenspecStatus from "./index.js";
-import { runOpenspecStatus } from "./openspec.js";
-import { listActiveChanges } from "./discover.js";
+import piTuiOpenspecStatus from "../src/index.js";
+import { runOpenspecStatus } from "../src/openspec.js";
+import { listActiveChanges } from "../src/discover.js";
 
 const mockedRunOpenspecStatus = vi.mocked(runOpenspecStatus);
 const mockedListActiveChanges = vi.mocked(listActiveChanges);

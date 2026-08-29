@@ -1,6 +1,6 @@
 // src/parser.test.ts
 import { describe, expect, it } from "vitest";
-import { extractChangeName, isLockingSubcommand, parseBashCommand } from "./parser.js";
+import { extractChangeName, isLockingSubcommand, parseBashCommand } from "../src/parser.js";
 
 describe("isLockingSubcommand", () => {
   it.each([

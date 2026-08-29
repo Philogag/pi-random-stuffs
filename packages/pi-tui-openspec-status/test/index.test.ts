@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import piTuiOpenspecStatus from "./index.js";
+import piTuiOpenspecStatus from "../src/index.js";
 
 function makePi() {
   const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};

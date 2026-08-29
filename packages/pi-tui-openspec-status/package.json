@@ -1,30 +1,35 @@
 {
   "name": "@philogag/pi-tui-openspec-status",
   "version": "0.1.0",
-  "description": "pi extension: single-line status bar for the current locked openspec change, with worktree-aware task merging",
+  "description": "pi extension: single-line status bar tracking openspec status",
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": ["dist"],
+  "keywords": ["pi", "extension", "tui", "openspec"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "watch": "tsc -p tsconfig.json --watch",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "lint": "echo \"no linter configured\""
   },
+  "dependencies": {},
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.40.0"
+    "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@earendil-works/pi-tui": "latest",
+    "typebox": "latest"
   },
   "devDependencies": {
-    "@types/node": ">=20",
-    "typescript": ">=5.6",
-    "vitest": ">=2.0"
+    "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@earendil-works/pi-tui": "latest",
+    "typebox": "latest",
+    "typescript": "^5.6.3",
+    "vitest": "latest"
   }
 }

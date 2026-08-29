@@ -1,15 +1,18 @@
 {
   "name": "@philogag/pi-tui-fold-blocks",
   "version": "0.1.0",
-  "private": true,
-  "description": "折叠/隐藏 pi TUI 工具块(只改渲染,不改 session) — 三态(原生/折叠/隐藏)、单行左右对齐、状态背景色",
+  "description": "pi extension: fold tool call block into one line in tui",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "files": ["dist"],
-  "keywords": ["pi", "extension", "tui", "tool-blocks", "fold"],
-  "engines": { "node": ">=20" },
+  "keywords": ["pi", "extension", "tui", "tool-blocks"],
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --noEmit",
