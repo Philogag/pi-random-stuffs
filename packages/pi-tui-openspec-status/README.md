@@ -65,6 +65,25 @@ In TUI mode you can take manual control of the status bar with the
 - Archiving the manually tracked change (e.g. `openspec archive <name>`)
   still auto-clears the status bar, as usual.
 
+## Lock persistence across restarts
+
+The tracked spec, worktree, and lock type (manual vs auto) are
+persisted into the session file via `pi.appendEntry()` (custom entries
+— never sent to the LLM). On `session_start` — including `/resume`,
+where pi reloads the extension with a fresh instance — the last
+matching entry is read back and the status bar is rebuilt:
+
+- A **manual** lock (`/tui-openspec-select`) is restored pinned, so
+  bash openspec commands don't switch it away.
+- An **auto** lock (from a bash `openspec` command) is restored with
+  its auto semantics, so a later `openspec status --change X` still
+  updates the tracked spec.
+- Clearing (`None` / auto-unlock on archive) writes an explicit empty
+  snapshot, so a stale lock is never restored.
+
+This means the status bar survives `/resume` and extension reloads
+instead of going empty.
+
 ## Worktree support
 
 When `openspec` is invoked inside a git worktree
