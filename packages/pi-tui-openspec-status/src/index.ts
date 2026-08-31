@@ -3,6 +3,11 @@ import { listActiveChanges } from "./discover.js";
 import { findSpec, findWorkTree } from "./parser.js";
 import { OpenSpecStatusRender } from "./render.js";
 import {
+  findLastPersistedLock,
+  LOCK_CUSTOM_TYPE,
+  type PersistedLock,
+} from "./state.js";
+import {
   isToolCallEventType,
   type ExtensionAPI,
 } from "@earendil-works/pi-coding-agent";
@@ -28,6 +33,15 @@ export interface PiTuiOpenspecStatusOptions {
  * lazily by the select command, which may run without session_start in
  * tests) and reused for the whole session.
  *
+ * Lock persistence: every authoritative state change (lock / auto-lock
+ * / worktree / clear / auto-unlock) is mirrored into the session file
+ * via `pi.appendEntry(LOCK_CUSTOM_TYPE, snapshot)` — custom entries do
+ * NOT participate in LLM context. On session_start (including
+ * `/resume`, where pi reloads the extension with a fresh instance) the
+ * last matching entry is read back via `findLastPersistedLock()` and
+ * the render is rebuilt with the same lock type (manual vs auto), so
+ * the status bar survives restarts instead of going empty.
+ *
  * The extension factory receives ONLY `ExtensionAPI` (see
  * https://pi.dev/docs/latest/extensions) — there is no ctx at load
  * time, so the mode is unknown until the first event fires. Handlers
@@ -43,15 +57,55 @@ export default function (
   const debounceMs = options.debounceMs ?? SET_STATUS_DEBOUNCE_MS;
   let render: OpenSpecStatusRender | undefined;
 
+  /**
+   * Persist a lock snapshot to the session file. `null` (or an
+   * all-cleared state) is stored as an explicit "no lock" entry so
+   * that a later resume restores the empty state instead of a stale
+   * lock. Persistence is best-effort: appendEntry failures must never
+   * propagate into the extension's render path (D12).
+   */
+  const persistLock = (state: PersistedLock | null) => {
+    try {
+      pi.appendEntry(LOCK_CUSTOM_TYPE, state ?? {
+        spec: "",
+        manualLock: false,
+        version: 1,
+      });
+    } catch {
+      // append-only session journal; a failure here is not fatal.
+    }
+  };
+
   pi.on("session_start", (_event, ctx) => {
     // D9: only activate under a real TUI. rpc/json/print never create
     // a render, so the status bar is never touched.
     if (ctx?.mode !== "tui") return;
 
-    render = new OpenSpecStatusRender(EXTENSION_ID, ctx, debounceMs);
+    render = new OpenSpecStatusRender(EXTENSION_ID, ctx, debounceMs, persistLock);
+
+    // Resume/restart: rebuild the previous lock state from the session
+    // journal (D1/D2/D4). A manual lock is pinned via render.lock(); an
+    // auto lock keeps its auto semantics via setSpec + setWorkTree.
+    // Recovery is best-effort: any failure keeps the empty state and
+    // never throws into the session_start handler (D12).
+    try {
+      const restored = findLastPersistedLock(ctx.sessionManager.getEntries());
+      if (restored) {
+        if (restored.manualLock) {
+          render.lock(restored.spec);
+        } else {
+          render.setSpec(restored.spec);
+          if (restored.worktree) render.setWorkTree(restored.worktree);
+        }
+      }
+    } catch {
+      // dirty journal data → stay in the empty state.
+    }
+
     // Explicit initial publish: status bar shows "no change" until the
     // first lock. Kept out of the constructor so that creating a render
-    // lazily (select command) has no side effects.
+    // lazily (select command) has no side effects. Published after the
+    // restore so a restored lock immediately supersedes it via refresh().
     ctx.ui.setStatus(EXTENSION_ID, undefined);
   });
 
@@ -91,7 +145,12 @@ export default function (
         render?.clearLock();
         return;
       }
-      render ??= new OpenSpecStatusRender(EXTENSION_ID, cmdCtx, debounceMs);
+      render ??= new OpenSpecStatusRender(
+        EXTENSION_ID,
+        cmdCtx,
+        debounceMs,
+        persistLock,
+      );
       render.lock(choice);
     },
   });
