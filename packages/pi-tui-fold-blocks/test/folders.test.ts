@@ -32,4 +32,17 @@ describe("foldCommand", () => {
   it("无包装时返回整命令", () => {
     expect(foldCommand("npm test", { smart: true })).toBe("npm test");
   });
+  it("多行命令折叠为单行", () => {
+    expect(foldCommand("cd build && \\\nnpm test", { smart: true })).toBe("npm test");
+    expect(foldCommand("ls -l && \\\n  echo hi", { smart: true })).toBe("ls -l && echo hi");
+  });
+  it("反斜杠续行合并为空格;其余换行用 ⏎ 分隔并吞掉缩进", () => {
+    expect(foldCommand("cd /tmp && \\\n  npm test", { smart: true })).toBe("npm test");
+    expect(foldCommand("for f in *; do \\\n  echo $f \\\n  done", { smart: true })).toBe("for f in *; do echo $f done");
+    expect(foldCommand("echo a\nb", { smart: false })).toBe("echo");
+  });
+  it("未以反斜杠结尾的换行用 ⏎ 分隔", () => {
+    expect(foldCommand("git status\n", { smart: true })).toBe("git status");
+    expect(foldCommand("ls\nls -l", { smart: true })).toBe("ls ⏎ ls -l");
+  });
 });
