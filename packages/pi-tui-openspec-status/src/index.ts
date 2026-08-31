@@ -90,9 +90,10 @@ export default function (
     // never throws into the session_start handler (D12).
     try {
       const restored = findLastPersistedLock(ctx.sessionManager.getEntries());
-      if (restored) {
+      if (restored && restored.spec) {
         if (restored.manualLock) {
           render.lock(restored.spec);
+          if (restored.worktree) render.setWorkTree(restored.worktree);
         } else {
           render.setSpec(restored.spec);
           if (restored.worktree) render.setWorkTree(restored.worktree);

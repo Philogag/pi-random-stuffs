@@ -243,6 +243,97 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
     ]);
   });
 
+  it("restores an auto-lock WITH worktree and merges both sources", async () => {
+    // Spec scenario「resume 后恢复 worktree」: auto-lock journal with a
+    // worktree path must drive setWorkTree so the status merges main +
+    // worktree sources on resume.
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-wtrestore-"));
+    mkdirSync(path.join(tmpRoot, "openspec", "changes", "beta"), {
+      recursive: true,
+    });
+    const wtRoot = path.join(tmpRoot, ".worktrees", "feat", "x");
+    mkdirSync(path.join(wtRoot, "openspec", "changes", "beta"), {
+      recursive: true,
+    });
+
+    const journal = [
+      customEntry({ spec: "beta", worktree: wtRoot, manualLock: false, version: 1 }),
+    ];
+    const pi = makePersistentPi(journal);
+    const statuses: Array<string | undefined> = [];
+    mockedRunOpenspecStatus.mockImplementation(async (_name: string, cwd: string) => ({
+      schemaName: "spec-driven",
+      artifacts: [],
+    }));
+    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    pi.fire("session_start", {}, tuiCtx({
+      cwd: tmpRoot,
+      entries: journal,
+      ui: { setStatus: (_id: string, text: string | undefined) => statuses.push(text) },
+    }));
+    // Debounced render: drain the 0ms timer + microtasks.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(statuses.some((s) => s?.startsWith("beta"))).toBe(true);
+    // Both sources were scanned: main (setSpec) + worktree (setWorkTree).
+    expect(mockedRunOpenspecStatus).toHaveBeenCalledWith("beta", tmpRoot);
+    expect(mockedRunOpenspecStatus).toHaveBeenCalledWith("beta", wtRoot);
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("resume from cleared (empty) state stays empty", async () => {
+    // Spec scenario「清除锁定后持久化空状态」: clearLock persists the
+    // empty marker; resume must NOT resurrect any lock.
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-emptyresume-"));
+    const journal = [customEntry({ spec: "", manualLock: false, version: 1 })];
+    const pi = makePersistentPi(journal);
+    const statuses: Array<string | undefined> = [];
+    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    pi.fire("session_start", {}, tuiCtx({
+      cwd: tmpRoot,
+      entries: journal,
+      ui: { setStatus: (_id: string, text: string | undefined) => statuses.push(text) },
+    }));
+    await new Promise((r) => setTimeout(r, 30));
+    // Only the initial empty publish; spec:"" fails the `saved && saved.spec`
+    // guard → no restore, no line ever published, no writes during restore.
+    expect(statuses).toEqual([undefined]);
+    expect(pi.entries).toHaveLength(0);
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("restores a manual lock WITH worktree (setWorkTree applies as scan source)", async () => {
+    // The manual branch pins the spec via lock(); the worktree must still
+    // be adopted as an additional scan source.
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-wtmanual-"));
+    mkdirSync(path.join(tmpRoot, "openspec", "changes", "gamma"), {
+      recursive: true,
+    });
+    const wtRoot = path.join(tmpRoot, ".worktrees", "feat", "y");
+    mkdirSync(path.join(wtRoot, "openspec", "changes", "gamma"), {
+      recursive: true,
+    });
+
+    const journal = [
+      customEntry({ spec: "gamma", worktree: wtRoot, manualLock: true, version: 1 }),
+    ];
+    const pi = makePersistentPi(journal);
+    const statuses: Array<string | undefined> = [];
+    mockedRunOpenspecStatus.mockImplementation(async (_name: string, cwd: string) => ({
+      schemaName: "spec-driven",
+      artifacts: [],
+    }));
+    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    pi.fire("session_start", {}, tuiCtx({
+      cwd: tmpRoot,
+      entries: journal,
+      ui: { setStatus: (_id: string, text: string | undefined) => statuses.push(text) },
+    }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(statuses.some((s) => s?.startsWith("gamma"))).toBe(true);
+    expect(mockedRunOpenspecStatus).toHaveBeenCalledWith("gamma", wtRoot);
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
   it("restore ignores dirty journal data (wrong version) → stays empty", async () => {
     const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-dirty-"));
     const journal = [customEntry({ spec: "gamma", manualLock: true, version: 2 })];
