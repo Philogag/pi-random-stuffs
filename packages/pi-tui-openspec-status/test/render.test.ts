@@ -1,8 +1,31 @@
 // test/render.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import type { PersistedLock } from "../src/state.js";
 import type { ArtifactStatus } from "../src/types.js";
 import { OpenSpecStatusRender, formatArtifactTokens, formatProgressBar, renderLine } from "../src/render.js";
+
+// render.ts spawns the openspec CLI in renderText(); stub it so the
+// async render path is fast and deterministic (same pattern as
+// unlock.test.ts). Only used by the "async auto-unlock" describe below.
+vi.mock("../src/openspec.js", () => ({
+  runOpenspecStatus: vi.fn(),
+}));
+
+import { runOpenspecStatus } from "../src/openspec.js";
+
+const mockedRunOpenspecStatus = vi.mocked(runOpenspecStatus);
+
+/** Drain queued microtasks + the setTimeout(0) used for debounce. */
+async function tick() {
+  // 50ms headroom: the render chain does real fs ops (access/readFile),
+  // which can exceed a tiny window under parallel suite load.
+  await new Promise<void>((r) => setTimeout(r, 50));
+  await new Promise((r) => setImmediate(r));
+  await new Promise((r) => setImmediate(r));
+}
 
 describe("formatArtifactTokens", () => {
   it("uses ● for done and ○ otherwise", () => {
@@ -169,5 +192,96 @@ describe("OpenSpecStatusRender — onStateChange callback", () => {
     // last call still equals the lock snapshot.
     expect(calls.length).toBe(1);
     expect(calls.at(-1)).toEqual(lockSnapshot);
+  });
+});
+
+describe("OpenSpecStatusRender — async auto-unlock fire", () => {
+  // Real timers + real fs so the debounced renderText() actually runs
+  // and reaches the all-sources-gone branch. onStateChange fires are
+  // recorded through the full async pipeline (like unlock.test.ts).
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-oc-"));
+    mockedRunOpenspecStatus.mockReset();
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+    vi.clearAllMocks();
+  });
+
+  it("fires null on auto-unlock when all sources disappear", async () => {
+    const changeName = "auto-unlock-demo";
+    // Folder exists so the first render finds an alive source and
+    // renders a real line (spec stays locked).
+    mkdirSync(path.join(tmpRoot, "openspec", "changes", changeName), {
+      recursive: true,
+    });
+    mockedRunOpenspecStatus.mockResolvedValue({
+      schemaName: "spec-driven",
+      applied: false,
+      artifacts: [],
+    } as never);
+
+    const calls: (PersistedLock | null)[] = [];
+    const render = new OpenSpecStatusRender(
+      "ext",
+      {
+        cwd: tmpRoot,
+        ui: { setStatus: () => {} },
+      } as never,
+      0,
+      (s) => calls.push(s),
+    );
+
+    // First render: folder alive → lock stays, snapshot fired on lock.
+    render.lock(changeName);
+    await tick();
+    expect(mockedRunOpenspecStatus).toHaveBeenCalledWith(
+      changeName,
+      tmpRoot,
+    );
+    expect(calls.at(-1)).toEqual({
+      spec: changeName,
+      worktree: undefined,
+      manualLock: true,
+      version: 1,
+    });
+
+    // Remove the folder → next render finds no alive source →
+    // auto-unlock fires null.
+    rmSync(path.join(tmpRoot, "openspec", "changes", changeName), {
+      recursive: true,
+      force: true,
+    });
+    render.refresh();
+    await tick();
+
+    expect(calls.at(-1)).toBeNull();
+  });
+});
+
+describe("OpenSpecStatusRender — setWorkTree under manualLock", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  function makeRender(onChange: (state: PersistedLock | null) => void) {
+    const ctx = { ui: { setStatus: () => {} } } as never;
+    return new OpenSpecStatusRender("ext", ctx, 0, onChange);
+  }
+
+  it("fires snapshot with manualLock: true when worktree changes under a manual lock", () => {
+    const calls: (PersistedLock | null)[] = [];
+    const render = makeRender((s) => calls.push(s));
+    render.lock("alpha");
+    calls.length = 0; // reset: only observe the setWorkTree fire
+    render.setWorkTree("/tmp/wt");
+    expect(calls.at(-1)).toEqual({
+      spec: "alpha",
+      worktree: "/tmp/wt",
+      manualLock: true,
+      version: 1,
+    });
   });
 });
