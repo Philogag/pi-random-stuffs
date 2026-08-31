@@ -145,3 +145,26 @@ export function parseBashCommand(cmd: string): ParsedBashCommand | null {
     isLocking,
   };
 }
+
+/**
+ * Extract the change name from a bash command line, when the command
+ * is an openspec invocation that locks a change (e.g. `openspec status
+ * --change foo` / `openspec new change foo`). Returns null for
+ * non-locking commands (list, doctor, …) and non-openspec commands.
+ */
+export function findSpec(cmd: string): string | null {
+  const parsed = parseBashCommand(cmd);
+  if (!parsed) return null;
+  return parsed.isLocking && parsed.changeName ? parsed.changeName : null;
+}
+
+/**
+ * Extract the worktree cwd from a bash command line, when the command
+ * runs inside a worktree (`cd <wt> && openspec …`). Returns null
+ * otherwise.
+ */
+export function findWorkTree(cmd: string): string | null {
+  const parsed = parseBashCommand(cmd);
+  if (!parsed) return null;
+  return parsed.isWorktree ? parsed.effectiveCwd : null;
+}

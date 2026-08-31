@@ -1,4 +1,4 @@
-// src/render.test.ts
+// test/render.test.ts
 import { describe, expect, it } from "vitest";
 import type { ArtifactStatus } from "../src/types.js";
 import { formatArtifactTokens, formatProgressBar, renderLine } from "../src/render.js";

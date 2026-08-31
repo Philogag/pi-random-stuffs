@@ -1,11 +1,12 @@
-// src/select.test.ts
+// test/select.test.ts
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
 
-vi.mock("./openspec.js", () => ({ runOpenspecStatus: vi.fn() }));
-vi.mock("./discover.js", () => ({ listActiveChanges: vi.fn() }));
+// Paths are relative to THIS file (test/): the mocked modules live in ../src.
+vi.mock("../src/openspec.js", () => ({ runOpenspecStatus: vi.fn() }));
+vi.mock("../src/discover.js", () => ({ listActiveChanges: vi.fn() }));
 
 import piTuiOpenspecStatus from "../src/index.js";
 import { runOpenspecStatus } from "../src/openspec.js";
@@ -62,7 +63,9 @@ describe("piTuiOpenspecStatus — /tui-openspec-select", () => {
     tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-select-"));
     pi = makePi();
     statuses = [];
-    piTuiOpenspecStatus(pi as never, ctxFor(tmpRoot, () => Promise.resolve("x")), { debounceMs: 0 });
+    // The factory receives only (pi, options); command handlers get
+    // their own ctx via runCommand(cmdCtx) below.
+    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
     mockedRunOpenspecStatus.mockReset();
     mockedListActiveChanges.mockReset();
   });
@@ -150,7 +153,7 @@ describe("piTuiOpenspecStatus — /tui-openspec-select", () => {
     await pi.runCommand("", ctxFor(tmpRoot, () => Promise.resolve("alpha")));
     await tick();
 
-    pi.fire("tool_call", { input: { type: "bash", command: "openspec status --change beta --json" } });
+    pi.fire("tool_call", { toolName: "bash", input: { command: "openspec status --change beta --json" } });
     await tick();
 
     const last = statuses[statuses.length - 1]!;
@@ -171,7 +174,8 @@ describe("piTuiOpenspecStatus — /tui-openspec-select", () => {
     await tick();
 
     pi.fire("tool_call", {
-      input: { type: "bash", command: `cd ${wtRoot} && openspec status --change alpha --json` },
+      toolName: "bash",
+      input: { command: `cd ${wtRoot} && openspec status --change alpha --json` },
     });
     await tick();
 
@@ -197,7 +201,7 @@ describe("piTuiOpenspecStatus — /tui-openspec-select", () => {
 
     // Auto-lock works again after archive-unlock
     mkdirSync(path.join(tmpRoot, "openspec", "changes", "beta"), { recursive: true });
-    pi.fire("tool_call", { input: { type: "bash", command: "openspec status --change beta --json" } });
+    pi.fire("tool_call", { toolName: "bash", input: { command: "openspec status --change beta --json" } });
     await tick();
     expect(statuses[statuses.length - 1]).toMatch(/^beta\b/);
   });

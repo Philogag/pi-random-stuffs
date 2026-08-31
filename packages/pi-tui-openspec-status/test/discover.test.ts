@@ -1,4 +1,4 @@
-// src/discover.test.ts
+// test/discover.test.ts
 // Unit tests for listActiveChanges: stable-sorted directory names under
 // `<openspecRoot>/openspec/changes/`, excluding `archive`; returns []
 // when the directory is missing or unreadable.

@@ -3,7 +3,10 @@ import { spawn } from "node:child_process";
 import type { StatusJson } from "./types.js";
 import { clearTimeout } from "node:timers";
 
-export const OPENSPEC_STATUS_TIMEOUT_MS = 2000;
+// The openspec CLI needs ~1.2–2s to produce the full status JSON on a
+// cold node/jiti start, and more under load. Keep generous headroom so
+// a slow CLI never collapses the status line to "spec-driven".
+export const OPENSPEC_STATUS_TIMEOUT_MS = 10000;
 
 export async function runOpenspecStatus(
   changeName: string,

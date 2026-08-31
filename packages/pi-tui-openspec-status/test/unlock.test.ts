@@ -1,4 +1,4 @@
-// src/unlock.test.ts
+// test/unlock.test.ts
 // Integration tests for the multi-source scanning + unlock strategy:
 //   - Default: scan main workspace's spec only.
 //   - When a worktree enters via `cd <worktree> && openspec ...`: scan
@@ -19,7 +19,8 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 
 // vi.mock is hoisted ABOVE all imports by vitest's transformer.
-vi.mock("./openspec.js", () => ({
+// Path is relative to THIS file (test/): the mocked modules live in ../src.
+vi.mock("../src/openspec.js", () => ({
   runOpenspecStatus: vi.fn(),
 }));
 
@@ -49,6 +50,13 @@ interface CallRecord {
   text: string | undefined;
 }
 
+interface TestCtx {
+  mode: "tui";
+  hasUI: boolean;
+  cwd: string;
+  ui: { setStatus: (id: string, text: string | undefined) => void };
+}
+
 /** Drain queued microtasks + the setTimeout(0) used for debounce. */
 async function tick() {
   // 50ms headroom: the render chain does real fs ops (access/readFile),
@@ -62,12 +70,13 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
   let tmpRoot: string;
   let pi: ReturnType<typeof makePi>;
   let calls: CallRecord[];
+  let ctx: TestCtx;
 
   beforeEach(() => {
     tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-unlock-"));
     pi = makePi();
     calls = [];
-    const ctx = {
+    ctx = {
       mode: "tui" as const,
       hasUI: true,
       cwd: tmpRoot,
@@ -77,7 +86,8 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
         },
       },
     };
-    piTuiOpenspecStatus(pi as never, ctx, { debounceMs: 0 });
+    // The factory receives only (pi, options); ctx is delivered per-event.
+    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
     mockedRunOpenspecStatus.mockReset();
   });
 
@@ -124,14 +134,15 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
       [tmpRoot]: { schemaName: "spec-driven", artifacts: [] },
     });
 
-    pi.fire("session_start");
+    pi.fire("session_start", {}, ctx);
     await tick();
     expect(calls).toEqual([
       { id: "pi-tui-openspec-status", text: undefined },
     ]);
 
     pi.fire("tool_call", {
-      input: { type: "bash", command: "openspec new change demo" },
+      toolName: "bash",
+      input: { command: "openspec new change demo" },
     });
     await tick();
     expect(calls.some((c) => c.text?.startsWith("demo"))).toBe(true);
@@ -159,10 +170,11 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
       [tmpRoot]: { schemaName: "spec-driven", artifacts: [] },
     });
 
-    pi.fire("session_start");
+    pi.fire("session_start", {}, ctx);
     await tick();
     pi.fire("tool_call", {
-      input: { type: "bash", command: "openspec new change keep" },
+      toolName: "bash",
+      input: { command: "openspec new change keep" },
     });
     await tick();
     expect(calls.filter((c) => c.text !== undefined).length).toBeGreaterThan(0);
@@ -205,12 +217,12 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
       },
     });
 
-    pi.fire("session_start");
+    pi.fire("session_start", {}, ctx);
     await tick();
 
     pi.fire("tool_call", {
+      toolName: "bash",
       input: {
-        type: "bash",
         command: `cd ${wtRoot} && openspec status --change mt-change --json`,
       },
     });
@@ -251,12 +263,12 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
       [wtRoot]: { schemaName: "spec-driven", artifacts: [] },
     });
 
-    pi.fire("session_start");
+    pi.fire("session_start", {}, ctx);
     await tick();
 
     pi.fire("tool_call", {
+      toolName: "bash",
       input: {
-        type: "bash",
         command: `cd ${wtRoot} && openspec status --change keep-main --json`,
       },
     });
@@ -305,12 +317,12 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
       [wtRoot]: { schemaName: "spec-driven", artifacts: [] },
     });
 
-    pi.fire("session_start");
+    pi.fire("session_start", {}, ctx);
     await tick();
 
     pi.fire("tool_call", {
+      toolName: "bash",
       input: {
-        type: "bash",
         command: `cd ${wtRoot} && openspec status --change wt-only --json`,
       },
     });
@@ -350,10 +362,11 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
       [tmpRoot]: { schemaName: "spec-driven", artifacts: [] },
     });
 
-    pi.fire("session_start");
+    pi.fire("session_start", {}, ctx);
     await tick();
     pi.fire("tool_call", {
-      input: { type: "bash", command: "openspec new change idem" },
+      toolName: "bash",
+      input: { command: "openspec new change idem" },
     });
     await tick();
     const callsAfterLock = calls.length;

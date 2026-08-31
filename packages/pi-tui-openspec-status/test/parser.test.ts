@@ -1,4 +1,4 @@
-// src/parser.test.ts
+// test/parser.test.ts
 import { describe, expect, it } from "vitest";
 import { extractChangeName, isLockingSubcommand, parseBashCommand } from "../src/parser.js";
 

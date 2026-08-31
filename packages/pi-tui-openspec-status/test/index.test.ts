@@ -17,64 +17,70 @@ function makePi() {
     registerCommand(name: string, _opts: unknown) {
       commands.push(name);
     },
+    commands,
   };
 }
 
-describe("piTuiOpenspecStatus — TUI-mode gate", () => {
-  it("registers handlers when ctx.mode === 'tui'", () => {
+describe("piTuiOpenspecStatus — extension entry registration", () => {
+  it("registers handlers + command unconditionally (factory receives only pi)", () => {
     const pi = makePi();
+    // Docs contract: the factory gets ONLY ExtensionAPI — no ctx at
+    // load time. Handlers are registered up front; the TUI gate runs
+    // inside session_start, the first event that carries ctx.
+    piTuiOpenspecStatus(pi as never);
+    expect(pi.listenerCount("session_start")).toBe(1);
+    expect(pi.listenerCount("tool_call")).toBe(1);
+    expect(pi.listenerCount("tool_result")).toBe(1);
+    expect(pi.commands).toEqual(["tui-openspec-select"]);
+  });
+
+  it("is defensive when loaded with no ctx at all (pi -e) — does not throw", () => {
+    const pi = makePi();
+    expect(() => piTuiOpenspecStatus(pi as never, undefined)).not.toThrow();
+  });
+
+  it("publishes setStatus(undefined) only after a tui session_start", () => {
+    const pi = makePi();
+    const calls: unknown[] = [];
     const ctx = {
       mode: "tui" as const,
       hasUI: true,
       cwd: "/repo",
-      ui: { setStatus: () => {} },
+      ui: { setStatus: (...a: unknown[]) => calls.push(a) },
     };
-    piTuiOpenspecStatus(pi as never, ctx);
-    expect(pi.listenerCount("session_start")).toBe(1);
-    expect(pi.listenerCount("tool_call")).toBe(1);
-    expect(pi.listenerCount("tool_result")).toBe(1);
+    piTuiOpenspecStatus(pi as never);
+    // tool events before any tui session_start are no-ops (no render).
+    pi.fire("tool_call", { toolName: "bash", input: { command: "openspec status --change foo --json" } });
+    pi.fire("tool_result", {});
+    expect(calls).toEqual([]);
+    pi.fire("session_start", {}, ctx);
+    expect(calls).toEqual([["pi-tui-openspec-status", undefined]]);
   });
 
   it.each(["print", "json", "rpc"] as const)(
-    "registers NO handlers when ctx.mode === '%s' (even if hasUI=true)",
+    "does nothing in non-tui modes (session_start with mode '%s')",
     (mode) => {
       const pi = makePi();
+      const calls: unknown[] = [];
       const ctx = {
         mode,
-        hasUI: true, // rpc sets hasUI=true; we still must not activate
+        hasUI: mode === "rpc", // rpc sets hasUI=true; still must not activate
         cwd: "/repo",
-        ui: { setStatus: () => {} },
+        ui: { setStatus: (...a: unknown[]) => calls.push(a) },
       };
-      piTuiOpenspecStatus(pi as never, ctx);
-      expect(pi.listenerCount("session_start")).toBe(0);
-      expect(pi.listenerCount("tool_call")).toBe(0);
-      expect(pi.listenerCount("tool_result")).toBe(0);
+      piTuiOpenspecStatus(pi as never);
+      pi.fire("session_start", {}, ctx);
+      pi.fire("tool_call", { toolName: "bash", input: { command: "openspec status --change foo --json" } });
+      pi.fire("tool_result", {});
+      expect(calls).toEqual([]);
     },
   );
 
-  it("does not touch ctx.ui.setStatus in non-tui modes", () => {
+  it("session_start with no ctx (undefined) does not throw and publishes nothing", () => {
     const pi = makePi();
     const calls: unknown[] = [];
-    const ctx = {
-      mode: "print" as const,
-      hasUI: false,
-      cwd: "/repo",
-      ui: { setStatus: (...a: unknown[]) => calls.push(a) },
-    };
-    piTuiOpenspecStatus(pi as never, ctx);
-    // No listener can fire because none registered.
-    pi.fire("session_start");
-    pi.fire("tool_call", { input: { type: "bash", command: "openspec status --change foo --json" } });
-    pi.fire("tool_result", {});
+    piTuiOpenspecStatus(pi as never);
+    pi.fire("session_start", {}, undefined);
     expect(calls).toEqual([]);
-  });
-
-  it("is defensive when pi loads via -e and ctx is undefined", () => {
-    const pi = makePi();
-    // Must NOT throw "Cannot read properties of undefined (reading 'mode')".
-    expect(() => piTuiOpenspecStatus(pi as never, undefined)).not.toThrow();
-    expect(pi.listenerCount("session_start")).toBe(0);
-    expect(pi.listenerCount("tool_call")).toBe(0);
-    expect(pi.listenerCount("tool_result")).toBe(0);
   });
 });
