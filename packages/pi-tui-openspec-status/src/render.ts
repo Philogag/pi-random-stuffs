@@ -4,6 +4,7 @@ import * as path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runOpenspecStatus } from "./openspec.js";
 import { mergeStatusResults, readMergedTasks } from "./merge.js";
+import type { PersistedLock } from "./state.js";
 import type { ArtifactStatus, MergedTasks } from "./types.js";
 
 export const ARTIFACT_INITIALS: Record<ArtifactStatus["id"], string> = {
@@ -94,11 +95,32 @@ export class StatusRender {
  * multi-source render pipeline: probe `openspec/changes/<name>` in each
  * source, query `openspec status --json` for the alive ones, merge
  * artifacts + tasks from main and worktree, then emit the line.
+ *
+ * The optional `onStateChange` callback receives a full
+ * {@link PersistedLock} snapshot (or `null` when all sources are
+ * gone) at every authoritative state transition. Fires occur after
+ * the dedupe early-returns (i.e. only when state actually changed)
+ * and from the auto-unlock branch of `renderText()`. Consumers
+ * (e.g. the session-persistence layer wired in index.ts) use this
+ * to publish the live lock state to pi's custom-message stream.
  */
 export class OpenSpecStatusRender extends StatusRender {
   spec?: string;
   worktree?: string;
   manualLock = false;
+  private readonly onStateChange:
+    | ((state: PersistedLock | null) => void)
+    | undefined;
+
+  constructor(
+    id: string,
+    ctx: ExtensionContext,
+    debounce = 500,
+    onStateChange?: (state: PersistedLock | null) => void,
+  ) {
+    super(id, ctx, debounce);
+    this.onStateChange = onStateChange;
+  }
 
   /**
    * Auto-lock from a bash `openspec` command. No-op while a manual
@@ -108,6 +130,12 @@ export class OpenSpecStatusRender extends StatusRender {
     if (this.manualLock) return;
     if (this.spec === spec) return;
     this.spec = spec;
+    this.onStateChange?.({
+      spec: this.spec,
+      worktree: this.worktree,
+      manualLock: false,
+      version: 1,
+    });
     this.refresh();
   }
 
@@ -119,6 +147,18 @@ export class OpenSpecStatusRender extends StatusRender {
   setWorkTree(worktree: string) {
     if (this.worktree === worktree) return;
     this.worktree = worktree;
+    // A worktree change without a tracked spec has no persistable
+    // full lock snapshot (PersistedLock.spec is required); skip the
+    // fire. The restore path only calls setWorkTree when a spec is
+    // present, so no persisted state is lost.
+    if (this.spec) {
+      this.onStateChange?.({
+        spec: this.spec,
+        worktree: this.worktree,
+        manualLock: this.manualLock,
+        version: 1,
+      });
+    }
     this.refresh();
   }
 
@@ -126,6 +166,12 @@ export class OpenSpecStatusRender extends StatusRender {
   lock(change: string) {
     this.manualLock = true;
     this.spec = change;
+    this.onStateChange?.({
+      spec: this.spec,
+      worktree: this.worktree,
+      manualLock: true,
+      version: 1,
+    });
     this.refresh();
   }
 
@@ -134,6 +180,7 @@ export class OpenSpecStatusRender extends StatusRender {
     this.manualLock = false;
     this.spec = undefined;
     this.worktree = "";
+    this.onStateChange?.(null);
     if (this.lastRendered !== "") {
       this.lastRendered = "";
       this.ctx.ui.setStatus(this.id, undefined);
@@ -181,6 +228,7 @@ export class OpenSpecStatusRender extends StatusRender {
       this.spec = undefined;
       this.worktree = "";
       this.manualLock = false;
+      this.onStateChange?.(null);
       return "";
     }
 
