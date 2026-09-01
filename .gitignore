@@ -46,3 +46,4 @@ Thumbs.db
 
 # project level temp install for verify
 .pi/tmp-packages
+.pi/settings.json
