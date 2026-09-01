@@ -31,5 +31,9 @@
     "typebox": "latest",
     "typescript": "^5.6.3",
     "vitest": "latest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Philogag/pi-random-stuffs"
   }
 }
