@@ -4,9 +4,9 @@
   "private": true,
   "description": "Node.js monorepo (pnpm workspaces + TypeScript)",
   "type": "module",
-  "packageManager": "pnpm@9.12.3",
+  "packageManager": "pnpm@11.1.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
   },
   "scripts": {
     "build": "pnpm -r --parallel build",

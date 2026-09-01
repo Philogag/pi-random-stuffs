@@ -5,10 +5,11 @@ on:
     branches:
       - master
 
-concurrency: ${{ github.workflow }}-${{ github.ref }}
-
 permissions:
+  id-token: write # Required for OIDC trusted publishing
   contents: read
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
 
 jobs:
   publish:
@@ -21,12 +22,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9.12.3
+          # v11+ required: native `pnpm publish` supports OIDC trusted publishing
+          # (automatic GitHub Actions OIDC token exchange, no NODE_AUTH_TOKEN needed)
+          version: 11.1.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
 
       - name: Install dependencies
@@ -35,7 +38,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Publish changed packages to npm
+      - name: Publish changed packages (OIDC trusted publishing)
         run: bash scripts/publish-changed.sh
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # No NODE_AUTH_TOKEN needed — npm CLI exchanges the OIDC token automatically
+          NPM_CONFIG_PROVENANCE: "true"
