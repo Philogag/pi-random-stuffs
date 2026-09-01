@@ -1,2 +1,8 @@
 packages:
   - 'packages/*'
+
+# Allow postinstall build scripts for these packages (pnpm 11 default blocks them)
+# @google/genai & protobufjs come from @earendil-works/pi-ai (Gemini provider)
+allowBuilds:
+  '@google/genai': true
+  protobufjs: true
