@@ -7,6 +7,7 @@ Node.js monorepo scaffold using **pnpm workspaces** + **TypeScript**。存放 pi
 | 包 | 说明 | 状态 |
 | --- | --- | --- |
 | [`@philogag/pi-tui-fold-blocks`](packages/pi-tui-fold-blocks/) | pi TUI 插件:折叠 / 隐藏工具调用块(三态、单行左右对齐、状态背景色) | ✅ 可用 |
+| [`@philogag/pi-tui-openspec-status`](packages/pi-tui-openspec-status/) | pi TUI 插件:在状态栏显示当前锁定的 openspec change 进度(自动/手动锁定、worktree 合并、锁定状态跨会话持久化) | ✅ 可用 |
 
 ## Layout
 

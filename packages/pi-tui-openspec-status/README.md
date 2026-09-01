@@ -24,8 +24,9 @@ Then enable in your pi config (`~/.pi/settings.json` or
 
 ## Activation mode
 
-The extension is **TUI-only**. It checks `ctx.mode === "tui"` at factory
-time and early-returns in any other mode:
+The extension is **TUI-only**. `ctx.mode` is unknown at factory time
+(it's only available once the first event fires), so the gate runs at
+`session_start` (the first event):
 
 | Mode       | Activates? | Notes                              |
 |------------|------------|------------------------------------|
@@ -35,7 +36,9 @@ time and early-returns in any other mode:
 | `print`    | ❌ no      | `-p` one-shot mode                 |
 
 Per `pi.dev/docs/latest/extensions#ctx-mode`, `ctx.mode` (not
-`ctx.hasUI`) is the correct TUI feature gate.
+`ctx.hasUI`) is the correct TUI feature gate. The `/tui-openspec-select`
+command (which can run without a prior `session_start`) re-checks the
+mode before rendering.
 
 ## Behavior
 
