@@ -35,7 +35,7 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Publish to npm
-        run: pnpm -r publish --no-git-checks
+      - name: Publish changed packages to npm
+        run: bash scripts/publish-changed.sh
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
