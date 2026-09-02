@@ -32,7 +32,7 @@ Node.js monorepo scaffold using **pnpm workspaces** + **TypeScript**。存放 pi
 | 命令 | 作用 |
 | --- | --- |
 | `pnpm install` | 安装所有 workspace 依赖 |
-| `pnpm build` | 递归并行构建所有 packages |
+| `pnpm build` | 递归(按 workspace 拓扑序)构建所有 packages |
 | `pnpm test` | 运行所有 packages 的测试 |
 | `pnpm test:unit` | 运行所有 packages 的单元测试 |
 | `pnpm typecheck` | `tsc -b` 项目引用增量类型检查 |
