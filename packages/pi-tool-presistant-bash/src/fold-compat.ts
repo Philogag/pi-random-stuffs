@@ -110,15 +110,18 @@ function foldResultInfo(result: unknown): {
     return { error, code, lineCount: execOutputLineCount(details.output ?? "") };
   }
   // 回退:details 缺失时解析 content 文本里的退出码(兼容 presistant 自带
-  // "[exit code: N]" 等格式);解析不到则按成功处理。
+  // "[exit code: N]" 等格式)。行数统计需先剥掉尾部退出码标记行(与 details
+  // 路径只数 output 一致);解析不到退出码时按保守失败处理,与
+  // execStatus(undefined) 的语义对齐(details 路径缺失即视为失败)。
   const text = contentTextOf(result);
+  const output = text.replace(/\s*\[?exit code:? \d+\]?\s*$/i, "");
   const m = /exit code[: ]?\s*(\d+)/i.exec(text);
-  if (!m) return { error: false, code: undefined, lineCount: execOutputLineCount(text) };
+  if (!m) return { error: true, code: undefined, lineCount: execOutputLineCount(output) };
   const code = Number(m[1]);
   return {
     error: code !== 0,
     code: code === 0 ? undefined : code,
-    lineCount: execOutputLineCount(text),
+    lineCount: execOutputLineCount(output),
   };
 }
 

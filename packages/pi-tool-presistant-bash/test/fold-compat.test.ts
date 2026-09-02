@@ -648,5 +648,22 @@ describe("buildExecFoldLine — 纯函数行文本", () => {
     });
     expect(line.result).toBe("FAILED(3)");
     expect(line.tips).toContain("exit 3");
+    // 行数不含尾部退出码标记行(与 details 路径只数 output 一致)。
+    expect(line.tips).toContain("1 lines");
+  });
+  it("details 缺失且文本无退出码 → 保守失败(与 execStatus(undefined) 对齐),行数不计标记", () => {
+    const line = buildExecFoldLine(makeCtx({ command: "make" }) as never, {
+      stage: "result",
+      config: cfg(),
+      result: { content: [{ type: "text", text: "boom\nfail\n[exit code: 7]" }] },
+    });
+    expect(line.result).toBe("FAILED(7)");
+    expect(line.tips).toContain("2 lines");
+    const unknown = buildExecFoldLine(makeCtx({ command: "make" }) as never, {
+      stage: "result",
+      config: cfg(),
+      result: { content: [{ type: "text", text: "no marker here" }] },
+    });
+    expect(unknown.result).toBe("FAILED");
   });
 });
