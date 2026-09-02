@@ -7,7 +7,10 @@ import {
   contentExitCode,
   contentLineCount,
   buildBlockComponent,
+  renderOwnedBlock,
+  renderBlock,
   type LineContext,
+  type RenderBlockOpts,
 } from "../src/render.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import type { ToolRenderContext } from "../src/overrides.js";
@@ -43,7 +46,7 @@ describe("buildReadBlockText", () => {
     });
     expect(t.shown).toContain("src/main.ts");
     expect(t.tips).toBe("[ 10 - 29 ]");
-    expect(t.result).toBe("OK");
+    expect(t.result).toBe("SUCCESS");
   });
   it("无 limit 时行号范围以 ? 结尾", () => {
     const t = buildReadBlockText(makeCtx({ path: "a.ts", offset: 5 }), {
@@ -184,5 +187,79 @@ describe("buildBlockComponent", () => {
     expect(content).toContain("src/main.ts");
     expect(content).toContain("[ 10 - 29 ]");
     expect(content).toContain("OK");
+  });
+});
+
+describe("renderOwnedBlock", () => {
+  const bgCalls: string[] = [];
+  const theme = {
+    bg: (color: string, text: string) => {
+      bgCalls.push(color);
+      return text;
+    },
+  } as never;
+  const optsFor = (name: string, stage: "call" | "result", config = DEFAULT_CONFIG) => ({
+    name, stage, args: {}, result: undefined, cwd: CWD, config, theme,
+  });
+  // 与 renderBlock 同源:renderBlock 内部即以 buildBashBlockText 为 lineBuilder 委托。
+  const bashBuilder = (ctx: ToolRenderContext, opts: RenderBlockOpts) => buildBashBlockText(ctx, opts);
+
+  it("hide 模式 → 0 行", () => {
+    const lines = renderOwnedBlock(
+      makeCtx({ command: "npm test" }),
+      optsFor("bash", "result", { ...DEFAULT_CONFIG, mode: "hide" }),
+      bashBuilder,
+    ).render(60);
+    expect(lines).toHaveLength(0);
+  });
+
+  it("空 lineBuilder 输出 → 0 行(renderOwnedBlock);未知 name 经 renderBlock 委托同样 0 行", () => {
+    const empty = renderOwnedBlock(
+      makeCtx({ command: "npm test" }),
+      optsFor("bash", "result"),
+      () => ({ tool: "", shown: "" }),
+    ).render(60);
+    expect(empty).toHaveLength(0);
+    const unknown = renderBlock(makeCtx({ command: "x" }), { ...optsFor("unknown-tool", "result"), args: { command: "x" } }).render(60);
+    expect(unknown).toHaveLength(0);
+  });
+
+  it("call 阶段 + isPartial:true → call 槽产出(bg 黄),与 renderBlock 同参输出 stripAnsi 后相等", () => {
+    bgCalls.length = 0;
+    const callCtx = makeCtx({ command: "npm test" });
+    callCtx.isPartial = true;
+    const owned = renderOwnedBlock(callCtx, { ...optsFor("bash", "call"), args: { command: "npm test" } }, bashBuilder).render(60);
+    const viaRenderBlock = renderBlock(callCtx, { ...optsFor("bash", "call"), args: { command: "npm test" } }).render(60);
+    expect(owned.length).toBeGreaterThan(0);
+    expect(owned.map(stripAnsi).join("\n")).toBe(viaRenderBlock.map(stripAnsi).join("\n"));
+    expect(owned.map(stripAnsi).join("\n")).toContain("exec - npm test");
+    expect(bgCalls).toContain("toolPendingBg");
+  });
+
+  it("call 阶段 + isPartial:false → call 槽退让(0 行),与 renderBlock 同参一致", () => {
+    const callCtx = makeCtx({ command: "npm test" });
+    callCtx.isPartial = false;
+    const owned = renderOwnedBlock(callCtx, { ...optsFor("bash", "call"), args: { command: "npm test" } }, bashBuilder).render(60);
+    const viaRenderBlock = renderBlock(callCtx, { ...optsFor("bash", "call"), args: { command: "npm test" } }).render(60);
+    expect(owned).toHaveLength(0);
+    expect(owned).toEqual(viaRenderBlock);
+  });
+
+  it("result 阶段 + isPartial:false → result 槽产出且 SUCCESS;isPartial:true → result 槽退让(0 行)", () => {
+    const result = { content: [{ type: "text", text: "ok\ndone" }] };
+    const doneCtx = makeCtx({ command: "npm test" });
+    doneCtx.isPartial = false;
+    const owned = renderOwnedBlock(doneCtx, { ...optsFor("bash", "result"), args: { command: "npm test" }, result }, bashBuilder).render(60);
+    const viaRenderBlock = renderBlock(doneCtx, { ...optsFor("bash", "result"), args: { command: "npm test" }, result }).render(60);
+    expect(owned.length).toBeGreaterThan(0);
+    expect(owned.map(stripAnsi).join("\n")).toBe(viaRenderBlock.map(stripAnsi).join("\n"));
+    expect(owned.map(stripAnsi).join("\n")).toContain("SUCCESS");
+
+    const partialCtx = makeCtx({ command: "npm test" });
+    partialCtx.isPartial = true;
+    const ownedPartial = renderOwnedBlock(partialCtx, { ...optsFor("bash", "result"), args: { command: "npm test" }, result }, bashBuilder).render(60);
+    const viaRenderBlockPartial = renderBlock(partialCtx, { ...optsFor("bash", "result"), args: { command: "npm test" }, result }).render(60);
+    expect(ownedPartial).toHaveLength(0);
+    expect(ownedPartial).toEqual(viaRenderBlockPartial);
   });
 });

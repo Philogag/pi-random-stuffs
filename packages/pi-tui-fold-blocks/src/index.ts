@@ -4,11 +4,38 @@ import { loadConfig, saveConfig, setMode, type FoldBlocksConfig } from "./config
 import { createModeState } from "./mode.js";
 import { registerOverrides } from "./overrides.js";
 import { openSettings } from "./settings.js";
+import { markFoldBlocksActive, publishConfig, getFoldConfig, subscribeFoldConfig, isFoldBlocksActive, subscribeFoldBlocksActive } from "./compat.js";
+import { renderOwnedBlock, buildBlockComponent, contentLineCount, contentExitCode, type LineContext } from "./render.js";
+import { foldCommand, type FoldCommandOpts } from "./folders/command.js";
+import type { ToolRenderContext } from "./overrides.js";
+
+// 兼容导出面(供其他扩展复用折叠渲染能力)。类型/常量/函数逐一来自其定义模块:
+//   renderOwnedBlock/LineContext/render.ts;buildBlockComponent/contentLineCount/contentExitCode 同;
+//   foldCommand(+FoldCommandOpts) 在 folders/command.ts;FoldBlocksConfig 在 config.ts;
+//   ToolRenderContext 在 overrides.ts;激活/配置单例在 compat.ts。
+export {
+  renderOwnedBlock,
+  buildBlockComponent,
+  contentLineCount,
+  contentExitCode,
+  foldCommand,
+  type FoldCommandOpts,
+  type LineContext,
+  type FoldBlocksConfig,
+  type ToolRenderContext,
+  getFoldConfig,
+  isFoldBlocksActive,
+  subscribeFoldBlocksActive,
+  subscribeFoldConfig,
+};
 
 export default function (pi: ExtensionAPI): void {
+  markFoldBlocksActive(); // 库面激活门控:工厂执行即视为扩展激活(幂等)。
   let config = loadConfig();
+  publishConfig(config);
   const modeState = createModeState(config.mode, () => {
     config = setMode(config, modeState.mode);
+    publishConfig(config); // persist-then-notify:onModeChange 由 setMode/rerenderAll 触发
   });
   const cwd = process.cwd();
   // 用 getter 把活 config 暴露给 overrides —— 让设置保存后立刻生效(P1-1 修复)
@@ -31,8 +58,9 @@ export default function (pi: ExtensionAPI): void {
       handler: async (args: string, ctx: ExtensionCommandContext) => {
         await openSettings(ctx.ui, config, (next) => {
           config = next;
-          if (next.mode !== modeState.mode) modeState.setMode(next.mode); // 模式字段实时同步,触发 rerenderAll
           saveConfig(config);
+          publishConfig(config); // persist-then-notify:先存盘,再通知订阅者
+          if (next.mode !== modeState.mode) modeState.setMode(next.mode); // 模式字段实时同步,触发 rerenderAll
         });
       },
     });

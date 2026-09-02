@@ -68,6 +68,57 @@ pi install npm:@philogag/pi-tui-fold-blocks
 - 折叠内容全部由 `renderResult` 单次渲染(`renderCall` 返回空 `Text`),保证布局一致。
 - 模式切换通过跨块重渲染(`invalidate`)实时生效,无需重启。
 
+## 面向其他扩展的库面
+
+本包在保持默认导出(扩展工厂)与内置折叠行为不变的前提下,提供一组命名导出,供其他扩展(如 `pi-tool-presistant-bash`)复用折叠渲染能力。API 不依赖任何具体工具名或对方扩展的类型。
+
+### 激活状态(门控)
+
+默认导出工厂执行时即标记本扩展已激活(幂等)。其他扩展可在任意加载顺序下安全订阅:
+
+```ts
+import { isFoldBlocksActive, subscribeFoldBlocksActive } from "@philogag/pi-tui-fold-blocks";
+
+if (isFoldBlocksActive()) {
+  attach(); // 已激活:立即装配
+} else {
+  const unsub = subscribeFoldBlocksActive(() => {
+    attach(); // 激活回调(仅一次)
+    unsub();
+  });
+}
+```
+
+### 当前配置(实时读取 + 变更订阅)
+
+```ts
+import { getFoldConfig, subscribeFoldConfig } from "@philogag/pi-tui-fold-blocks";
+
+// 读取当前生效配置(未激活/未变更时为 DEFAULT_CONFIG 的独立拷贝)
+getFoldConfig();
+
+// 订阅配置变更(设置页保存 / 命令循环 / setMode 路径统一经 publishConfig 通知,先持久化后通知)
+const unsub = subscribeFoldConfig((next) => rerenderAll(next));
+```
+
+### 折叠渲染核心
+
+```ts
+import { renderOwnedBlock } from "@philogag/pi-tui-fold-blocks";
+
+renderOwnedBlock(ctx, { name, stage, args, result, cwd, config, theme }, (ctx, opts) => ({
+  icon: "", tool: "exec", shown: "npm test", tips: "[ 2 lines ]", result: "SUCCESS",
+}));
+```
+
+`renderOwnedBlock(ctx, opts, lineBuilder)` 语义与内置 `renderBlock` 一致:hide 模式返回 0 行空 `Text`;单帧归属(call 槽在 `ctx.isPartial` 时拥有该行,result 槽在 `!ctx.isPartial` 时拥有,另一槽退让为 0 行);`lineBuilder` 产出空文本 → 0 行。行内布局(截断策略/三态背景)由 `buildBlockComponent` / `bgFor` 保证,与内置工具块同形。
+
+### 稳定性声明
+
+- **默认导出不变**:仍为扩展工厂,内置 `read` / `bash` / `edit` / `write` 折叠行为与新增导出前完全一致。
+- **无反向依赖**:本包不引用任何其他扩展的类型或工具名。
+- 以上导出在包版本间保持向后兼容;如需新增能力,以追加导出方式演进。
+
 ## 开发
 
 ```bash

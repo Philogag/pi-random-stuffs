@@ -305,6 +305,35 @@ function bgFor(ctx: ToolRenderContext, opts: RenderBlockOpts): (text: string) =>
 }
 
 export function renderBlock(ctx: ToolRenderContext, opts: RenderBlockOpts): Component {
+  // 现有 4 工具各自的 lineBuilder;未知工具名 → 空 builder(产出 0 行,保持原默认行为)。
+  let lineBuilder: (ctx: ToolRenderContext, opts: RenderBlockOpts) => LineContext;
+  switch (opts.name) {
+    case "read": lineBuilder = buildReadBlockText; break;
+    case "write": lineBuilder = buildWriteBlockText; break;
+    case "edit": lineBuilder = buildWriteBlockText; break;
+    case "bash": lineBuilder = buildBashBlockText; break;
+    default:
+      lineBuilder = () => ({ tool: "", shown: "" });
+  }
+  return renderOwnedBlock(ctx, opts, lineBuilder);
+}
+
+/**
+ * 折叠块渲染核心,供本包工具与外部扩展(经命名导出)共用。
+ *
+ * 语义与原 renderBlock 完全一致:
+ *  - hide 模式 → 空 Text → 0 行 → 块整体消失;
+ *  - 单帧归属(call/result 槽互斥,只让一个产出可见行,见下注释);
+ *  - lineBuilder 产出空文本(如未知/无内容)→ 同样 0 行空 Text。
+ *
+ * lineBuilder: 由调用方把"工具名 → 行文本"的决策收窄成单函数,
+ * 从 (ctx, opts) 构建 LineContext(icon/tool/shown/tips/result)。
+ */
+export function renderOwnedBlock(
+  ctx: ToolRenderContext,
+  opts: RenderBlockOpts,
+  lineBuilder: (ctx: ToolRenderContext, opts: RenderBlockOpts) => LineContext,
+): Component {
   if (opts.config.mode === "hide") return new Text("", 0, 0); // 空 Text → 0 行 → 块整体消失
 
   // SDK 的 ToolExecutionComponent.updateDisplay 会把 renderCall 与 renderResult 的返回值
@@ -319,15 +348,9 @@ export function renderBlock(ctx: ToolRenderContext, opts: RenderBlockOpts): Comp
   const ownsLine = opts.stage === "call" ? ctx.isPartial : !ctx.isPartial;
   if (!ownsLine) return new Text("", 0, 0);
 
-  var text :LineContext;
-  switch (opts.name) {
-    case "read": text = buildReadBlockText(ctx, opts); break;
-    case "write": text = buildWriteBlockText(ctx, opts); break;
-    case "edit": text = buildWriteBlockText(ctx, opts); break;
-    case "bash": text = buildBashBlockText(ctx, opts); break;
-    default: 
-      return new Text("", 0, 0);
-  }
+  const line = lineBuilder(ctx, opts);
+  // 空行文本(未识别工具/无内容)→ 0 行,避免 BgTruncatedText 造出孤立的 "-" 摘要行。
+  if (!line.tool && !line.shown) return new Text("", 0, 0);
 
-  return buildBlockComponent(text, bgFor(ctx, opts));
+  return buildBlockComponent(line, bgFor(ctx, opts));
 }
