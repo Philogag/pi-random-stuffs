@@ -86,3 +86,16 @@ pnpm --filter @philogag/pi-tool-presistant-bash build       # 产出 dist/
 ### 依赖说明
 
 运行时依赖(`@earendil-works/pi-coding-agent` / `typebox`)声明为 **peerDependencies(弱依赖)**:宿主 pi 环境已内置这些包,插件不重复打包;`devDependencies` 中保留同名依赖供本地 typecheck / test。
+
+### 兼容矩阵(与 @philogag/pi-tui-fold-blocks)
+
+`presistant-bash-exec` 支持被 [@philogag/pi-tui-fold-blocks](https://www.npmjs.com/package/@philogag/pi-tui-fold-blocks) 折叠为与内置 bash 行同形的单行块(可选集成,见下):
+
+| 安装/激活组合 | presistant-bash-exec 块行为 |
+| --- | --- |
+| 只装 fold-blocks(无本扩展) | fold-blocks 自身行为不变,不影响任何工具 |
+| 只装本扩展(无 fold-blocks) | 默认渲染,行为不变;fold-blocks 为 optionalDependencies,缺失时不报错、无噪音 |
+| 同装且 fold-blocks 作为扩展激活 | exec 块跟随全局模式:`fold` 单行折叠(图标 + `exec` + 折叠命令 + 统计/状态段)、`hide` 整块消失、`native` pi 默认观感;模式切换即时生效 |
+| 同装但 fold-blocks 未激活 | 激活门控:exec 保持默认渲染(不折叠) |
+
+集成方式:`pi install npm:@philogag/pi-tui-fold-blocks`(仓库级加 `-l`)。折叠仅作用于 `presistant-bash-exec`;`create` / `create-container` / `list` / `destroy` 不受影响,执行语义与折叠与否无关。

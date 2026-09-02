@@ -3,6 +3,7 @@ import { Type, type Static } from "typebox";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { SessionRegistry, type ExecResult, type SessionInfo } from "./session.js";
 import { createContainerSession, type ContainerCreateResult } from "./container.js";
+import { attachExecFoldCompat } from "./fold-compat.js";
 
 export const EXTENSION_ID = "pi-tool-presistant-bash";
 
@@ -12,6 +13,11 @@ export interface PresistantBashOptions {
    * fresh registry per extension load.
    */
   registry?: SessionRegistry;
+  /**
+   * Fold-blocks compat attach hook (async, non-blocking). Overridable for
+   * tests; defaults to the fold-compat implementation.
+   */
+  attachExecFoldCompat?: typeof attachExecFoldCompat;
 }
 
 const createParams = Type.Object({
@@ -226,10 +232,16 @@ export function createTools(registry: SessionRegistry): ToolDefinition[] {
  */
 export default function (pi: ExtensionAPI, options: PresistantBashOptions = {}): void {
   const registry = options.registry ?? new SessionRegistry();
+  const tools = createTools(registry);
 
-  for (const tool of createTools(registry)) {
+  for (const tool of tools) {
     pi.registerTool(tool);
   }
+
+  // 可选折叠装配:探测 fold-blocks 并仅在其激活后二次注册 exec(execute 闭包不变);
+  // 异步执行,不阻塞扩展工厂;包缺失/未激活/加载失败 → 静默回退到默认渲染。
+  const attach = options.attachExecFoldCompat ?? attachExecFoldCompat;
+  void attach(pi, tools);
 
   // Kill all sessions when the pi session ends. Sessions are intentionally
   // NOT restored on resume: the agent recreates them as needed.

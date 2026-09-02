@@ -14,6 +14,7 @@ vi.mock("../src/container.js", () => ({
 }));
 
 import piToolPresistantBash, { createTools } from "../src/index.js";
+import { attachExecFoldCompat } from "../src/fold-compat.js";
 import { createContainerSession } from "../src/container.js";
 
 const mockedCreateContainer = vi.mocked(createContainerSession);
@@ -81,6 +82,60 @@ describe("pi-tool-presistant-bash — extension entry", () => {
     piToolPresistantBash(pi as never, { registry });
     pi.fire("session_shutdown", { type: "session_shutdown", reason: "quit" }, {});
     expect(registry.destroyAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("默认路径(真 attach + stub loader 返回 null)→ 仍注册全部工具且不抛错", async () => {
+    const pi = makePi();
+    const attachSpy = vi.fn((p: unknown, ts: unknown) =>
+      attachExecFoldCompat(p as never, ts as never, { loadCompat: async () => null }),
+    );
+    expect(() =>
+      piToolPresistantBash(pi as never, { attachExecFoldCompat: attachSpy as never }),
+    ).not.toThrow();
+    expect(attachSpy).toHaveBeenCalledTimes(1);
+    const names = (pi.tools as { name: string }[]).map((t) => t.name);
+    expect(names).toEqual([
+      "presistant-bash-create",
+      "presistant-bash-create-container",
+      "presistant-bash-exec",
+      "presistant-bash-list",
+      "presistant-bash-destroy",
+    ]);
+    // loader 返回 null → 装配不注册任何额外定义(回退契约)。
+    expect(pi.tools).toHaveLength(5);
+  });
+
+  it("注入的 attach 拿到 createTools 输出;重建定义 execute 与原 exec execute 同一引用", () => {
+    const pi = makePi();
+    const registry = makeRegistry();
+    let originalExecExecute: unknown;
+    const attachSpy = vi.fn(async (p: unknown, ts: { name: string; execute: unknown }[]) => {
+      const execTool = ts.find((t) => t.name === "presistant-bash-exec");
+      expect(execTool).toBeDefined();
+      originalExecExecute = execTool!.execute;
+      (p as { registerTool(t: unknown): void }).registerTool({
+        ...execTool,
+        renderShell: "self",
+        renderCall: () => ({ invalidate: () => {}, render: () => [] as string[] }),
+        renderResult: () => ({ invalidate: () => {}, render: () => [] as string[] }),
+      });
+      return { disposed: () => {} };
+    });
+    piToolPresistantBash(pi as never, { registry, attachExecFoldCompat: attachSpy as never });
+    expect(attachSpy).toHaveBeenCalledTimes(1);
+    expect(pi.tools).toHaveLength(6); // 5 原始 + 1 折叠重建
+    const folded = pi.tools[5] as {
+      name: string;
+      renderShell?: string;
+      execute: unknown;
+      renderCall: unknown;
+      renderResult: unknown;
+    };
+    expect(folded.name).toBe("presistant-bash-exec");
+    expect(folded.renderShell).toBe("self");
+    expect(typeof folded.renderCall).toBe("function");
+    expect(typeof folded.renderResult).toBe("function");
+    expect(folded.execute).toBe(originalExecExecute); // 同引用 → 行为不变
   });
 
   it("accepts an injected registry", async () => {

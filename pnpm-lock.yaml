@@ -33,6 +33,10 @@ importers:
       vitest:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@26.4.0)(vite@8.2.2(@types/node@26.4.0)(jiti@2.7.0)(yaml@2.9.0))
+    optionalDependencies:
+      '@philogag/pi-tui-fold-blocks':
+        specifier: workspace:*
+        version: link:../pi-tui-fold-blocks
 
   packages/pi-tui-fold-blocks:
     dependencies:
