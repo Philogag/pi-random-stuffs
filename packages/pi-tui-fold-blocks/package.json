@@ -11,6 +11,9 @@
       "import": "./dist/index.js"
     }
   },
+  "pi": {
+    "extensions": ["dist/index.js"]
+  },
   "files": ["dist"],
   "keywords": ["pi", "extension", "tui", "tool-blocks"],
   "scripts": {
