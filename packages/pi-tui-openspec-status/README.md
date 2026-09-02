@@ -1,112 +1,86 @@
-# `@philogag/pi-tui-openspec-status`
+# @philogag/pi-tui-openspec-status
 
-A [pi coding agent](https://github.com/mattoopie/pi) extension that
-shows the current locked **openspec** change as a single status-bar line:
+pi TUI 插件:在状态栏单行显示当前锁定的 **openspec** change 进度:
 
 ```
 add-pi-tui-openspec-status (superpowers-bridge-cn) [P● D● S○ T○] Tasks: ███░░░░░░░ 2/7
 ```
 
-## Install
+## 安装
 
 ```bash
-pnpm add -D @philogag/pi-tui-openspec-status
+pi install npm:@philogag/pi-tui-openspec-status
 ```
 
-Then enable in your pi config (`~/.pi/settings.json` or
-`<repo>/.pi/settings.json`):
+- 安装后扩展自动启用,无需额外配置;用 `pi config` 可启用 / 禁用。
+- 项目级安装加 `-l`(`pi install -l npm:@philogag/pi-tui-openspec-status`,写入 `.pi/settings.json`,可随仓库共享)。
+- 卸载:`pi remove npm:@philogag/pi-tui-openspec-status`。
+- 快速体验:`pi -e npm:@philogag/pi-tui-openspec-status`(仅本次运行,不写入配置)。
 
-```json
-{
-  "extensions": ["@philogag/pi-tui-openspec-status"]
-}
+## 激活模式
+
+本扩展**仅限 TUI**。工厂阶段拿不到 `ctx.mode`(第一个事件触发后才有),因此门控在 `session_start`(第一个事件)时执行:
+
+| 模式     | 激活?  | 说明                                     |
+| -------- | ------ | ---------------------------------------- |
+| `tui`    | ✅ 是  | 正常交互操作                             |
+| `rpc`    | ❌ 否  | 此处 `ctx.hasUI === true`,但模式检查排除它 |
+| `json`   | ❌ 否  | 无事件流输出                             |
+| `print`  | ❌ 否  | `-p` 一次性模式                          |
+
+按 `pi.dev/docs/latest/extensions#ctx-mode`,`ctx.mode`(而非 `ctx.hasUI`)才是正确的 TUI 特性门控。`/tui-openspec-select` 命令(可能在没有先发生 `session_start` 的情况下运行)在渲染前会重新检查模式。
+
+## 行为
+
+- 当你(或 agent)执行**显式指定 change** 的 openspec 命令时——`new`、`status`、`apply`、`archive`、`verify`、`sync`、`instructions`、`show`、`validate`、`context`、`view`——或手动用 `/tui-openspec-select` 选择 change 后,状态行出现。
+- 浏览类命令(`openspec list` / `openspec doctor`)会清空状态行。
+- 每次匹配的 `bash` 工具调用后 500ms 刷新。
+
+## 手动跟踪:`/tui-openspec-select`
+
+TUI 模式下可用 `/tui-openspec-select` 命令手动控制状态栏:
+
+- 打开交互选择器,列出所有**活跃** change(`openspec/changes/*/` 减去 `archive/`)加一个 `None` 选项。
+- 手动选择 change 会**锁定**状态栏:之后 bash 的 `openspec` 命令不会切换它,除非你手动重新选择或选 `None`(手动覆盖自动)。
+- 选 `None` 清除手动锁,恢复 bash 命令的自动跟踪。
+- 取消选择器(Esc)不改变任何内容——当前跟踪状态保持不变。
+- 归档手动跟踪的 change(如 `openspec archive <name>`)仍会照常自动清空状态栏。
+
+## 锁定跨重启持久化
+
+跟踪的 spec、worktree 和锁类型(手动 vs 自动)通过 `pi.appendEntry()`(自定义条目——绝不发给 LLM)持久化到会话文件。`session_start` 时——包括 `/resume`(pi 用新实例重载扩展)——读回最后一条匹配条目并重建状态栏:
+
+- **手动**锁(`/tui-openspec-select`)恢复后保持固定,bash 的 openspec 命令不会切换它。
+- **自动**锁(来自 bash `openspec` 命令)按自动语义恢复,后续 `openspec status --change X` 仍会更新跟踪的 spec。
+- 清除(`None` / 归档自动解锁)会写入显式空快照,因此不会恢复过期锁。
+
+这意味着状态栏在 `/resume` 和扩展重载后依然保留,而不是变空。
+
+## Worktree 支持
+
+当 `openspec` 在 git worktree 内调用时(如 `.worktrees/feat/openspec-status/`),扩展会同时读取主仓库和 worktree 的 `tasks.md`,按任务 ID 去重:
+
+- 任一侧勾选即为"完成"。
+- 总数为唯一任务 ID 的并集。
+
+这防止了 worktree 领先于主仓库时进度条回退(常见的 SDD apply 场景)。
+
+## 已知限制
+
+- 只显示 schema 的外部产物(`proposal`、`design`、`specs`、`tasks`);规划阶段内部产物(`brainstorm`、`verify`、`retrospective`)隐藏。
+- 需要 `openspec` CLI 在 `$PATH` 上。CLI 缺失时静默禁用扩展。
+- 不渲染 widget、对话框或键盘快捷键——只有底部状态栏(`ctx.ui.setStatus`)。
+- **非 TUI 模式(rpc/json/print)不激活**——设计如此。
+
+## 开发
+
+```bash
+pnpm install                 # 安装依赖(弱依赖来自宿主 pi,devDeps 供本地构建)
+pnpm --filter @philogag/pi-tui-openspec-status test        # 测试
+pnpm --filter @philogag/pi-tui-openspec-status typecheck
+pnpm --filter @philogag/pi-tui-openspec-status build       # 产出 dist/
 ```
 
-## Activation mode
+### 依赖说明
 
-The extension is **TUI-only**. `ctx.mode` is unknown at factory time
-(it's only available once the first event fires), so the gate runs at
-`session_start` (the first event):
-
-| Mode       | Activates? | Notes                              |
-|------------|------------|------------------------------------|
-| `tui`      | ✅ yes     | Normal interactive operation        |
-| `rpc`      | ❌ no      | `ctx.hasUI === true` here too, but mode check excludes it |
-| `json`     | ❌ no      | No event-stream output             |
-| `print`    | ❌ no      | `-p` one-shot mode                 |
-
-Per `pi.dev/docs/latest/extensions#ctx-mode`, `ctx.mode` (not
-`ctx.hasUI`) is the correct TUI feature gate. The `/tui-openspec-select`
-command (which can run without a prior `session_start`) re-checks the
-mode before rendering.
-
-## Behavior
-
-- The status line appears when you (or the agent) invoke an
-  openspec command that **explicitly names a change** —
-  `new`, `status`, `apply`, `archive`, `verify`, `sync`,
-  `instructions`, `show`, `validate`, `context`, `view` — **or** when
-  you manually select a change with `/tui-openspec-select`.
-- Browsing commands like `openspec list` / `openspec doctor` clear the
-  status line.
-- The line refreshes 500ms after each matching `bash` tool call.
-
-## Manual tracking with `/tui-openspec-select`
-
-In TUI mode you can take manual control of the status bar with the
-`/tui-openspec-select` command:
-
-- Opens an interactive picker listing every **active** change
-  (`openspec/changes/*/` minus `archive/`) plus a `None` option.
-- Selecting a change manually **locks** the status bar to it: bash
-  `openspec` commands will NOT switch it away until you manually
-  re-select another change or pick `None` (manual overrides auto).
-- Picking `None` clears the manual lock and restores automatic
-  tracking from bash commands.
-- Cancelling the picker (Esc) changes nothing — the current tracking
-  state is left untouched.
-- Archiving the manually tracked change (e.g. `openspec archive <name>`)
-  still auto-clears the status bar, as usual.
-
-## Lock persistence across restarts
-
-The tracked spec, worktree, and lock type (manual vs auto) are
-persisted into the session file via `pi.appendEntry()` (custom entries
-— never sent to the LLM). On `session_start` — including `/resume`,
-where pi reloads the extension with a fresh instance — the last
-matching entry is read back and the status bar is rebuilt:
-
-- A **manual** lock (`/tui-openspec-select`) is restored pinned, so
-  bash openspec commands don't switch it away.
-- An **auto** lock (from a bash `openspec` command) is restored with
-  its auto semantics, so a later `openspec status --change X` still
-  updates the tracked spec.
-- Clearing (`None` / auto-unlock on archive) writes an explicit empty
-  snapshot, so a stale lock is never restored.
-
-This means the status bar survives `/resume` and extension reloads
-instead of going empty.
-
-## Worktree support
-
-When `openspec` is invoked inside a git worktree
-(e.g. `.worktrees/feat/openspec-status/`), the extension reads
-`tasks.md` from **both** the main repo and the worktree, then
-deduplicates by task ID:
-
-- A task is "done" if checked in either side.
-- Total count is the union of unique task IDs.
-
-This prevents the progress bar from regressing when the worktree is
-ahead of the main repo (the common SDD apply scenario).
-
-## Limitations
-
-- Only the schema's external artifacts (`proposal`, `design`, `specs`,
-  `tasks`) appear; planning-phase internal artifacts
-  (`brainstorm`, `verify`, `retrospective`) are hidden.
-- Requires the `openspec` CLI on `$PATH`. Missing CLI silently disables
-  the extension.
-- Does **not** render widgets, dialogs, or keyboard shortcuts — only
-  the bottom status bar (`ctx.ui.setStatus`).
-- **Does not activate in non-TUI modes** (rpc/json/print) — by design.
+运行时依赖(`@earendil-works/pi-coding-agent` / `typebox`)声明为 **peerDependencies(弱依赖)**:宿主 pi 环境已内置这些包,插件不重复打包;`devDependencies` 中保留同名依赖供本地 typecheck / test。

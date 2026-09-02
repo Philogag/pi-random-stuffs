@@ -2,6 +2,19 @@
 
 pi TUI 插件:折叠 / 隐藏工具调用块,让对话更清爽。**只改渲染,不改 session**——所有内容仍完整保留在会话里。
 
+## 安装
+
+```bash
+pi install npm:@philogag/pi-tui-fold-blocks
+```
+
+- 安装后扩展自动启用,无需额外配置;用 `pi config` 可启用 / 禁用。
+- 项目级安装加 `-l`(`pi install -l npm:@philogag/pi-tui-fold-blocks`,写入 `.pi/settings.json`,可随仓库共享)。
+- 卸载:`pi remove npm:@philogag/pi-tui-fold-blocks`。
+- 快速体验:`pi -e npm:@philogag/pi-tui-fold-blocks`(仅本次运行,不写入配置)。
+
+改动扩展后执行 `/reload` 热重载,无需重启 pi。
+
 ## 特性
 
 - **三态模式**:`native`(原生)/ `fold`(折叠成一行)/ `hide`(完全不渲染)
@@ -14,41 +27,16 @@ pi TUI 插件:折叠 / 隐藏工具调用块,让对话更清爽。**只改渲染
 - **nerd font 图标**:默认开启,可关闭(兼容无 nerd font 字体的终端)
 - **非侵入**:`execute` 原样委托给内置工具,不改变任何行为
 
-## 安装
-
-扩展放在自动发现的扩展目录中:
-
-| 位置 | 作用域 |
-| --- | --- |
-| `~/.pi/agent/extensions/` | 全局(所有项目) |
-| `.pi/extensions/` | 项目级(需先信任项目) |
-
-把仓库内 `packages/pi-tui-fold-blocks/` 复制(或链接)到上述任一目录的 `pi-tui-fold-blocks/` 子目录即可,如:
-
-```bash
-mkdir -p ~/.pi/agent/extensions
-ln -s "$PWD/packages/pi-tui-fold-blocks" ~/.pi/agent/extensions/pi-tui-fold-blocks
-```
-
-或在 `~/.pi/settings.json` 的 `extensions` 数组中追加包目录的绝对路径。
-
-> 也可使用 `pi -e ./packages/pi-tui-fold-blocks/src/index.ts` 快速体验。
-
-改动扩展后执行 `/reload` 热重载,无需重启 pi。
-
 ## 使用
 
-## Settings
+### Settings 页面
 
-Run `/tui-fold-blocks` to open the settings page. The page follows pi's
-native settings interaction:
+运行 `/tui-fold-blocks` 打开设置页。页面遵循 pi 原生 settings 交互:
 
-- Single select list with all options (Mode, Nerd font icons, Path style,
-  Fold git worktree, Bash smart detection, Show status hints).
-- `↑`/`↓` to navigate, `Space` to cycle the selected option's value
-  (booleans cycle `on`/`off`, enums cycle their choices).
-- Changes are saved to `settings.json` immediately.
-- `Esc` closes the page.
+- 单选列表列出全部选项(Mode、Nerd font icons、Path style、Fold git worktree、Bash smart detection、Show status hints)。
+- `↑`/`↓` 导航,`Space` 循环切换当前选项的值(布尔在 `on`/`off` 间切换,枚举循环其取值)。
+- 改动立即写入 `settings.json`。
+- `Esc` 关闭页面。
 
 ### 手动配置
 
@@ -84,7 +72,7 @@ native settings interaction:
 
 ```bash
 pnpm install                 # 安装依赖(弱依赖来自宿主 pi,devDeps 供本地构建)
-pnpm --filter @philogag/pi-tui-fold-blocks test        # 24 个测试
+pnpm --filter @philogag/pi-tui-fold-blocks test        # 测试
 pnpm --filter @philogag/pi-tui-fold-blocks typecheck
 pnpm --filter @philogag/pi-tui-fold-blocks build       # 产出 dist/
 ```
