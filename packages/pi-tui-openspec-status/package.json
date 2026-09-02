@@ -1,6 +1,6 @@
 {
   "name": "@philogag/pi-tui-openspec-status",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "pi extension: single-line status bar tracking openspec status",
   "type": "module",
   "main": "./dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@philogag/pi-tui-fold-blocks",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "pi extension: fold tool call block into one line in tui",
   "type": "module",
   "main": "./dist/index.js",
