@@ -3,6 +3,10 @@ packages:
 
 # Allow postinstall build scripts for these packages (pnpm 11 default blocks them)
 # @google/genai & protobufjs come from @earendil-works/pi-ai (Gemini provider)
+# esbuild is a transitive dep of vitest; its platform binary ships via
+# optionalDependencies, so the postinstall script is not needed (verified:
+# tests + build pass with it blocked). Set to false to keep the decision explicit.
 allowBuilds:
   '@google/genai': true
+  esbuild: false
   protobufjs: true

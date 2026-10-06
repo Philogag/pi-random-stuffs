@@ -3,6 +3,7 @@
   "references": [
     { "path": "./packages/pi-tui-fold-blocks" },
     { "path": "./packages/pi-tui-openspec-status" },
-    { "path": "./packages/pi-tool-presistant-bash" }
+    { "path": "./packages/pi-tool-presistant-bash" },
+    { "path": "./packages/pi-goal-loop" }
   ]
 }
