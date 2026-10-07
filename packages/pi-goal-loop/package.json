@@ -1,6 +1,6 @@
 {
   "name": "@philogag/pi-goal-loop",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "pi extension: run a user-declared goal across turns until the agent or the user ends it",
   "type": "module",
   "main": "./dist/index.js",
