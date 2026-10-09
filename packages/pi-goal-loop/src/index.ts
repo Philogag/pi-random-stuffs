@@ -60,6 +60,8 @@ export default function goalLoop(pi: ExtensionAPI): void {
       const previous = getGoal(state);
       startGoal(state, text);
       notify(ctx, previous === null ? goalStartedNotice(text) : goalReplacedNotice(text));
+      // 空闲时立刻开启一轮（streaming 中交给 agent_before_settle 边界续跑，不插队）
+      if (typeof ctx.isIdle === "function" && ctx.isIdle()) wakeNow();
     },
   });
 

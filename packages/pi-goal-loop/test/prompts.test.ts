@@ -18,12 +18,13 @@ describe("prompts", () => {
     expect(GOAL_LOOP_CUSTOM_TYPE).toBe("goal-loop");
   });
 
-  it("continuation prompt carries the goal and all three exits", () => {
+  it("continuation prompt carries the goal and the two agent exits", () => {
     const text = buildContinuationPrompt("重构 X 模块");
     expect(text).toContain("重构 X 模块");
     expect(text).toContain("goal_finish");
     expect(text).toContain("goal_sleep");
-    expect(text).toContain("/goal-stop");
+    expect(text).toContain("直到目标完全完成");
+    expect(text).not.toContain("/goal-stop");
   });
 
   it("started notice mentions the in-memory limitation and /goal-stop", () => {

@@ -19,7 +19,7 @@ pi install npm:@philogag/pi-goal-loop
 
 | 命令 | 作用 |
 | --- | --- |
-| `/goal <目标>` | 发起目标;已有目标时**替换**它(并重置延迟状态) |
+| `/goal <目标>` | 发起目标并**在空闲时立刻开始一轮**;已有目标时**替换**它(并重置延迟状态) |
 | `/goal` | 无参数:显示当前目标,并提示「仅存于内存」与 `/goal-stop` |
 | `/goal-stop` | 结束目标并停止自动续跑 |
 
@@ -68,13 +68,47 @@ pi install npm:@philogag/pi-goal-loop
 | 2 | 仍未收口 → 第二次 `entry_appended`(`goal-loop`) |
 | 3 | agent 调用 `goal_finish` → 目标清除,不再注入 → `agent_settled` 后进程正常退出(exit 0) |
 
-即:自动续跑与 `goal_finish` 收口均已通过真实 pi 会话验证;续跑提示词内容包含目标原文与三个出口。
+即:自动续跑与 `goal_finish` 收口均已通过真实 pi 会话验证;续跑提示词内容包含目标原文与两个 agent 出口 `goal_finish` / `goal_sleep`(面向用户的 `/goal-stop` 不在该提示词中)。
+
+### `/goal` 空闲时立即启动(2026-10-09)
+
+本次复验的宿主为 **pi 1.1.0**,扩展源码为工作树中的 `src/index.ts`(与已提交版本一致;工作树 `src/prompts.ts` 另有一处与本变更无关的未提交改动,仅影响续跑提示词文案,不涉及 kickoff 路径)。因本机已全局安装同名扩展(`~/.pi/agent/npm/node_modules/@philogag/pi-goal-loop/dist/index.js`),直接 `-e` 会因 `goal_finish` / `goal_sleep` 工具名冲突而无法加载,故加了 `-ne` 并显式加载 provider 扩展:
+
+```bash
+pi -ne \
+  -e /home/philogag/.pi/agent/npm/node_modules/@philogag/pi-provider-omniroute/src/index.ts \
+  -e <repo>/packages/pi-goal-loop/src/index.ts \
+  -p --mode json "/goal 用一句话说明你已经收到目标"
+```
+
+| 观察项 | 结果 |
+| --- | --- |
+| `/goal` 处理器 | 命中,`isIdle()` 返回 `true`(命令处理器内被调用)ⓘ |
+| `-p --mode json` 事件流 | 仅 `session` + `agent_start`,随后进程退出;**未**出现 goal-loop custom message,也**未**出现回复 |
+| 原因 | print 模式在扩展命令返回 `disposition: "handled"` 后立即 `disposeRuntime()` 并 abort agent;而扩展经 `pi.sendMessage(..., { triggerTurn: true })` 触发的运行是 fire-and-forget(宿主 `sendMessage` 丢弃其 Promise,扩展无法 await),故该轮在产生 `turn_start`/回复前即被中止 |
+
+ⓘ 该行来自 `/tmp` 中一份**插桩临时副本**(在命令处理器内加日志打印 `isIdle()` 返回值),**不是**上方干净 `-p` 运行的结果——干净 `-p` 运行只产出 `session` + `agent_start` 两行事件,无法观测 `isIdle()`。
+
+因此改用**同一未修改源码**的 RPC 模式(`pi --mode rpc --no-session -ne -e …`)复验同一条 `/goal 用一句话说明你已经收到目标`,全程无任何额外用户消息,事件序列为:
+
+| 序号 | 事件(关键字段) |
+| --- | --- |
+| 1 | `agent_start` |
+| 2 | prompt 响应 `disposition: "handled"` |
+| 3 | `turn_start` |
+| 4 | `message_start` / `message_end`:`role: "custom"`、`customType: "goal-loop"`、`display: true`、内容含目标原文 |
+| 5 | assistant 回复 + `goal_finish` 工具调用 → 第二轮 `turn_start` → 最终回复 → `agent_settled` |
+
+即:空闲时 `/goal X` 无需任何额外用户消息即开启一轮,agent 有实际回复并调用 `goal_finish` 收口(全程无 `role: "user"` 消息)。
+
+- **streaming 路径:未验证(需人工交互会话)**。
+- 在 pi 1.1.0 下,扩展注入的 custom message 以 `message_start` / `message_end`(`role: "custom"`)呈现,不再发 `entry_appended`;上方「已验证的 pi 版本」的端到端记录基于宿主 0.87.1,其中的 `entry_appended` 观察仅适用于该版本。
 
 ## 开发
 
 ```bash
 pnpm install                 # 安装依赖(弱依赖来自宿主 pi,devDeps 供本地构建)
-pnpm --filter @philogag/pi-goal-loop test        # 测试(46 例)
+pnpm --filter @philogag/pi-goal-loop test        # 测试(50 例)
 pnpm --filter @philogag/pi-goal-loop typecheck
 pnpm --filter @philogag/pi-goal-loop build       # 产出 dist/
 ```
@@ -86,7 +120,7 @@ pnpm --filter @philogag/pi-goal-loop build       # 产出 dist/
 >
 > 本变更已把决定登记在仓库根的 `pnpm-workspace.yaml`:`allowBuilds.esbuild: false`
 > —— esbuild 只是 vitest 的传递依赖,其平台二进制经由 optionalDependencies 分发,阻断 postinstall
-> 不影响测试与构建(已本地验证:46 项测试与 build 均通过)。这与该文件既有的
+> 不影响测试与构建(已本地验证:50 项测试用例与 build 命令)。这与该文件既有的
 > `'@google/genai'` / `protobufjs` 条目是同一机制。
 
 ### 依赖说明
@@ -97,5 +131,5 @@ pnpm --filter @philogag/pi-goal-loop build       # 产出 dist/
 
 - **纯状态机与接线分离**:`src/goal-state.ts` 是不依赖 pi 的纯状态机(注入式定时器接口,便于用 fake timers 测试),`src/index.ts` 只做 pi 接线。
 - **唯一出口**:`finishGoal` / `stopGoal` 是清除目标的唯一两条路径;`aborted` / `error` 只影响本轮续跑判定。
-- **唤醒来源仅有两个**:定时器到点、超时兜底。避免「子 agent 一结束就误触发新一轮」。
+- **唤醒来源有三个**:用户 `/goal` 声明(agent 空闲时立即启动)、定时器到点、超时兜底。注意子 agent 结束**不会**触发新一轮,避免误触发。
 - **抑制只消费一次**:`goal_sleep` 后的第一次 settle 被抑制,之后若继续 settle 则说明未推进,交由续跑逻辑处理。

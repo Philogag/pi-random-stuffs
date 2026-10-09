@@ -31,9 +31,10 @@ function makeFakePi() {
   return { pi: pi as never, commands, tools, handlers, sent, appendEntry };
 }
 
-function makeCtx() {
+function makeCtx(options: { idle?: boolean } = {}) {
   const notify = vi.fn();
-  return { ctx: { hasUI: true, ui: { notify } } as never, notify };
+  const isIdle = vi.fn(() => options.idle ?? false);
+  return { ctx: { hasUI: true, ui: { notify }, isIdle } as never, notify, isIdle };
 }
 
 describe("pi-goal-loop wiring", () => {
@@ -207,5 +208,61 @@ describe("pi-goal-loop wiring", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("starts a turn immediately when /goal is declared while idle", async () => {
+    const { pi, commands, sent } = makeFakePi();
+    goalLoop(pi);
+    const { ctx, notify } = makeCtx({ idle: true });
+
+    await commands.get("goal")!.handler("重构 X 模块", ctx);
+
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(notify.mock.calls[0]![0]).toContain("重构 X 模块");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]![0]).toEqual(
+      expect.objectContaining({
+        customType: "goal-loop",
+        content: expect.stringContaining("重构 X 模块"),
+        display: true,
+      }),
+    );
+    expect(sent[0]![1]).toEqual({ triggerTurn: true });
+  });
+
+  it("does not start a turn when /goal is declared while streaming", async () => {
+    const { pi, commands, sent } = makeFakePi();
+    goalLoop(pi);
+    const { ctx } = makeCtx();
+
+    await commands.get("goal")!.handler("给 Y 补集成测试", ctx);
+
+    expect(sent).toHaveLength(0);
+  });
+
+  it("does not start a turn for the no-argument status query", async () => {
+    const { pi, commands, sent } = makeFakePi();
+    goalLoop(pi);
+    const { ctx } = makeCtx({ idle: true });
+
+    await commands.get("goal")!.handler("   ", ctx);
+
+    expect(sent).toHaveLength(0);
+  });
+
+  it("starts a turn immediately when replacing a goal while idle", async () => {
+    const { pi, commands, sent } = makeFakePi();
+    goalLoop(pi);
+    const { ctx, notify } = makeCtx({ idle: true });
+
+    await commands.get("goal")!.handler("重构 X 模块", ctx);
+    await commands.get("goal")!.handler("给 Y 补集成测试", ctx);
+
+    expect(notify.mock.calls[1]![0]).toContain("已被替换");
+    expect(sent).toHaveLength(2);
+    expect(sent[1]![0]).toEqual(
+      expect.objectContaining({ content: expect.stringContaining("给 Y 补集成测试") }),
+    );
+    expect(sent[1]![1]).toEqual({ triggerTurn: true });
   });
 });

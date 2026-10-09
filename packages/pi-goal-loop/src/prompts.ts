@@ -5,10 +5,9 @@ export function buildContinuationPrompt(goal: string): string {
     "[goal-loop] 活动目标仍在进行中：",
     goal,
     "",
-    "请继续推进该目标。",
+    "请继续逐步推进该目标, 直到目标完全完成。",
     "- 目标已完全达成时，调用 goal_finish 结束目标。",
     "- 需要等待异步任务（例如 subagent）时，调用 goal_sleep({ seconds }) 推迟下一次自动续跑。",
-    "- 用户可用 /goal-stop 随时结束目标。",
   ].join("\n");
 }
 
