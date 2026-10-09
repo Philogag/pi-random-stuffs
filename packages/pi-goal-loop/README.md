@@ -2,7 +2,9 @@
 
 pi 扩展:给 agent 一个**持续目标**。
 
-一次 `/goal` 声明目标后,pi 会在每轮循环结束而目标仍未完成时**自动注入下一轮提示词**继续推进;只有 agent 调用 `goal_finish` 或用户执行 `/goal-stop` 才会真正结束。适合「做完为止」的长任务,agent 中途收尾过早时由本扩展把它推回去。
+一次 `/goal` 声明目标后,pi 会在每轮循环结束而目标仍未完成时**自动注入下一轮提示词**继续推进;若声明时会话**空闲**,还会**立刻开始第一轮**(见「空闲时立即启动」)。只有 agent 调用 `goal_finish` 或用户执行 `/goal-stop` 才会真正结束。适合「做完为止」的长任务,agent 中途收尾过早时由本扩展把它推回去。
+
+> 版本 **0.1.1** · 测试 **50 例** · 已验证宿主 **pi 1.1.0**(kickoff 复验)/ **pi 0.87.1**(端到端)· 最后更新 **2026-10-09**
 
 ## 安装
 
@@ -22,6 +24,18 @@ pi install npm:@philogag/pi-goal-loop
 | `/goal <目标>` | 发起目标并**在空闲时立刻开始一轮**;已有目标时**替换**它(并重置延迟状态) |
 | `/goal` | 无参数:显示当前目标,并提示「仅存于内存」与 `/goal-stop` |
 | `/goal-stop` | 结束目标并停止自动续跑 |
+
+### 空闲时立即启动
+
+`/goal <目标>` 在**会话空闲**时会立刻开启一轮,而不是等到下一个循环结束事件:
+
+| 触发场景 | 行为 |
+| --- | --- |
+| 会话空闲,且当前无活动目标 | 注入目标 → **立即开始一轮** |
+| 会话空闲,但已有活动目标 | 替换目标 → **立即开始一轮**(延迟状态一并重置) |
+| 正在跑一轮 / 子 agent 运行中 | 只记录目标,不插队;等本轮结束事件按既有规则续跑 |
+
+实现上由命令处理器在设置目标后判定 `ctx.isIdle()` 并调用 `wakeNow()`,宿主随即以 `triggerTurn: true` 注入一条 `goal-loop` custom message 驱动该轮。复验证据见下文「`/goal` kickoff 的复验记录」。
 
 ## 工具(agent 视角)
 
@@ -57,7 +71,7 @@ pi install npm:@philogag/pi-goal-loop
 
 ## 已验证的 pi 版本
 
-- 构建、测试与端到端验证均基于 **pi 0.87.1**(`npm ls @earendil-works/pi-coding-agent` → `0.87.1`)。
+- 构建、测试与端到端验证均基于 **pi 0.87.1**(`npm ls @earendil-works/pi-coding-agent` → `0.87.1`);`/goal` kickoff 的复验另在 **pi 1.1.0** 上完成(见本节末)。
 - 本扩展依赖 `agent_before_settle` 扩展事件,该事件自 **pi 0.87.0** 起提供;`peerDependencies` 因此要求 `@earendil-works/pi-coding-agent: >=0.87.0`。
 
 端到端验证记录(`pi -e ./src/index.ts -p --mode json "/goal …" "Begin now."`,真实会话,scratch 目录):
@@ -70,9 +84,9 @@ pi install npm:@philogag/pi-goal-loop
 
 即:自动续跑与 `goal_finish` 收口均已通过真实 pi 会话验证;续跑提示词内容包含目标原文与两个 agent 出口 `goal_finish` / `goal_sleep`(面向用户的 `/goal-stop` 不在该提示词中)。
 
-### `/goal` 空闲时立即启动(2026-10-09)
+### `/goal` kickoff 的复验记录(2026-10-09)
 
-本次复验的宿主为 **pi 1.1.0**,扩展源码为工作树中的 `src/index.ts`(与已提交版本一致;工作树 `src/prompts.ts` 另有一处与本变更无关的未提交改动,仅影响续跑提示词文案,不涉及 kickoff 路径)。因本机已全局安装同名扩展(`~/.pi/agent/npm/node_modules/@philogag/pi-goal-loop/dist/index.js`),直接 `-e` 会因 `goal_finish` / `goal_sleep` 工具名冲突而无法加载,故加了 `-ne` 并显式加载 provider 扩展:
+本次复验的宿主为 **pi 1.1.0**,扩展源码为已提交的 `src/index.ts`(当时 `src/prompts.ts` 的续跑提示词文案改动尚未提交,现也已包含在 `dd0b37d` 中;该改动只影响提示词文案,不涉及 kickoff 路径)。因本机已全局安装同名扩展(`~/.pi/agent/npm/node_modules/@philogag/pi-goal-loop/dist/index.js`),直接 `-e` 会因 `goal_finish` / `goal_sleep` 工具名冲突而无法加载,故加了 `-ne` 并显式加载 provider 扩展:
 
 ```bash
 pi -ne \
