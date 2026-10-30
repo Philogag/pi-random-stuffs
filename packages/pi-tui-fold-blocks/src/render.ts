@@ -1,5 +1,5 @@
 // packages/pi-tui-fold-blocks/src/render.ts
-import { Text, HStack, visibleWidth, truncateToWidth, type Component, type StackChild } from "@earendil-works/pi-tui";
+import { Text, Container, HStack, visibleWidth, truncateToWidth, type Component, type StackChild } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { FoldBlocksConfig } from "./config.js";
 import { foldPath } from "./folders/path.js";
@@ -14,6 +14,11 @@ export interface RenderBlockOpts {
   cwd: string;
   config: FoldBlocksConfig;
   theme: Theme;
+  /**
+   * 展开态的自绘展开体（可选）。返回 undefined 时回退到 `contentText(opts.result)` 原文。
+   * 仅当 `ctx.expanded === true` 时调用。
+   */
+  expandedBody?: (ctx: ToolRenderContext, opts: RenderBlockOpts) => Component | undefined;
 }
 
 function countRows(content: string): number {
@@ -138,6 +143,14 @@ export function contentLineCount(result: unknown): number {
   const lines = text.split("\n");
   return lines[lines.length - 1] === "" ? lines.length - 1 : lines.length;
 }
+
+/** 拼接 AgentToolResult.content 的全部文本(result 缺失/非数组/空内容 → 空串)。
+ * 展开态的外部扩展块用它作为默认展开体来源。 */
+export function contentText(result: unknown): string {
+  const content = (result as { content?: { text?: string }[] } | undefined)?.content;
+  if (!Array.isArray(content) || content.length === 0) return "";
+  return content.map((c) => c.text ?? "").join("");
+}
 export function buildBashBlockText(ctx: ToolRenderContext, opts: RenderBlockOpts): LineContext {
   const args = ctx.args as BashArgsSchema;
   const shown = foldCommand(args.command, { smart: opts.config.bashBlocks.smart });
@@ -204,7 +217,27 @@ class BgTruncatedText implements Component {
 }
 
 /**
- * 带 padding + 背景的容器(替代 pi-tui 的 Box:后者 applyBg = `bgFn(line + trailingPad)`
+ * 多行背景文本(折叠单行用 BgTruncatedText,展开体需要逐行)。
+ *
+ * 与 BgTruncatedText 同一着色策略:按 `\x1b[0m` 分片、每片重套 bg —— 任何 reset 之后
+ * 紧跟的片段都会重新建立 bg(详见 BgTruncatedText 的注释)。每行 pad 到恰好 width。
+ */
+class BgMultilineText implements Component {
+  constructor(private readonly text: string, private readonly bgFn: (line: string) => string) {}
+  invalidate(): void {
+    // 无缓存(每次 render 直接按 width 计算)
+  }
+  render(width: number): string[] {
+    const w = Math.max(0, Math.floor(width));
+    if (w === 0) return [];
+    return this.text.split("\n").map((line) => this.reBg(truncateToWidth(line, w, "...", true)));
+  }
+  private reBg(line: string): string {
+    return line.split("\x1b[0m").map((chunk) => this.bgFn(chunk)).join("\x1b[0m");
+  }
+}
+
+/** 带 padding + 背景的容器(替代 pi-tui 的 Box:后者 applyBg = `bgFn(line + trailingPad)`
  * 只在最外层包一次,行内一旦出现 `\x1b[0m` 全量重置就把那次包裹清掉,导致 trailing 右 padding
  * 落在最后一个 reset 之后、无 bg)。本容器把 "左 padding + 子组件行 + 右 padding" 拼好后
  * 走 reBg(按 `\x1b[0m` 分片、每片各套 bgFn 再 join),任何 reset 之后紧跟的片段(含右 padding
@@ -279,6 +312,27 @@ export function buildBlockComponent(
   text: LineContext,
   bgFn: (line: string) => string,
 ): Component {
+  return buildBoxedBlock(buildLineRow(text, bgFn), bgFn, 1);
+}
+
+/**
+ * 把任意组件装进"自带背景 + 上下留白 + 左右 padding"的容器。
+ * 折叠单行(`buildBlockComponent`)与展开体共用:两者都必须在 self-shell 下自绘盒壳。
+ * `paddingX` 对应原生 Box 的 `paddingX = outputPad`;纵向固定 1(与原生一致)。
+ */
+export function buildBoxedBlock(
+  content: Component,
+  bgFn: (line: string) => string,
+  paddingX = 1,
+): Component {
+  return new BgPaddedBox(content, Math.max(0, Math.floor(paddingX)), 1, bgFn);
+}
+
+/**
+ * 单行内容(左概要 + tips + 右统计)的 HStack,不含盒壳。
+ * 展开体在它下面拼内容,因此必须与盒壳分开。
+ */
+function buildLineRow(text: LineContext, bgFn: (line: string) => string): Component {
   const left = buildLeft(text);
   const tips = (text.tips ?? "").trim();
   const right = buildRight(text);
@@ -294,14 +348,28 @@ export function buildBlockComponent(
   }
   children.push({ component: new BgTruncatedText(right, bgFn), basis: rightW, grow: 0, shrink: 0 });
   const hstack = new HStack(children, { gap: 1, align: "stretch" });
-  return new BgPaddedBox(hstack, 1, 1, bgFn);
+  return hstack;
 }
 
 /** 背景:文件块恒绿;bash 按 isPartial(黄)/isError(红)/成功(绿)。 */
-function bgFor(ctx: ToolRenderContext, opts: RenderBlockOpts): (text: string) => string {
-  if (opts.stage === "call") return (t) => opts.theme.bg("toolPendingBg", t);
-  if (ctx.isError) return (t) => opts.theme.bg("toolErrorBg", t);
-  return (t) => opts.theme.bg("toolSuccessBg", t);
+export function bgFor(
+  stage: "call" | "result",
+  isError: boolean,
+  theme: Theme,
+): (text: string) => string {
+  if (stage === "call") return (t) => theme.bg("toolPendingBg", t);
+  if (isError) return (t) => theme.bg("toolErrorBg", t);
+  return (t) => theme.bg("toolSuccessBg", t);
+}
+
+/** 展开体默认实现:结果原文逐行着色,空文本 → 0 行。 */
+function expandedBodyFromText(
+  text: string,
+  theme: Theme,
+  bgFn: (line: string) => string,
+): Component {
+  if (text === "") return new Text("", 0, 0);
+  return new BgMultilineText(text.split("\n").map((l) => theme.fg("toolOutput", l)).join("\n"), bgFn);
 }
 
 export function renderBlock(ctx: ToolRenderContext, opts: RenderBlockOpts): Component {
@@ -349,8 +417,28 @@ export function renderOwnedBlock(
   if (!ownsLine) return new Text("", 0, 0);
 
   const line = lineBuilder(ctx, opts);
-  // 空行文本(未识别工具/无内容)→ 0 行,避免 BgTruncatedText 造出孤立的 "-" 摘要行。
-  if (!line.tool && !line.shown) return new Text("", 0, 0);
+  const bgFn = bgFor(opts.stage, ctx.isError, opts.theme);
 
-  return buildBlockComponent(line, bgFor(ctx, opts));
+  // 折叠态:恰好一行(既有行为,不得变化)
+  if (ctx.expanded !== true) {
+    // 空行文本(未识别工具/无内容)→ 0 行,避免 BgTruncatedText 造出孤立的 "-" 摘要行。
+    if (!line.tool && !line.shown) return new Text("", 0, 0);
+    return buildBlockComponent(line, bgFn);
+  }
+
+  // 展开态:折叠摘要行作头部(若有内容) + 展开体,整块共用一个自绘盒壳。
+  // 外部扩展(无权威原生渲染器可委托)走这里;内置四工具在 overrides.ts 直接委托原生渲染器。
+  const body = opts.expandedBody?.(ctx, opts) ?? expandedBodyFromText(contentText(opts.result), opts.theme, bgFn);
+  const header = line.tool || line.shown ? buildLineRow(line, bgFn) : undefined;
+  let content: Component;
+  if (header) {
+    // pi-tui 的 Container 无构造函数参数,子组件用 addChild 挂载
+    const stack = new Container();
+    stack.addChild(header);
+    stack.addChild(body);
+    content = stack;
+  } else {
+    content = body;
+  }
+  return buildBoxedBlock(content, bgFn, ctx.outputPad ?? 1);
 }

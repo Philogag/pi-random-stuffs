@@ -1,11 +1,11 @@
 // packages/pi-tui-fold-blocks/src/overrides.ts
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createReadToolDefinition, createBashToolDefinition, createEditToolDefinition, createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
+import { Container, Text } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
-import { Text } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { FoldBlocksConfig } from "./config.js";
-import { renderBlock } from "./render.js";
+import { renderBlock, buildBoxedBlock, bgFor } from "./render.js";
 
 // ToolRenderContext 在 SDK 内部类型但未公开 re-export;从 ToolDefinition 推导
 type AnyToolDef = ToolDefinition<any, any, any>;
@@ -35,11 +35,43 @@ export interface ToolRenderContext<TState = any, TArgs = any> {
 	showImages: boolean;
 	/** Whether the current result is an error. */
 	isError: boolean;
+	/** Horizontal padding used by the native result renderer (mirrors Box paddingX). */
+	outputPad?: number;
+	/** Execution duration in ms; only set once the execution has ended. */
+	durationMs?: number;
 }
 
 type DefFactory = (cwd: string) => AnyToolDef;
 
-function override(
+/**
+ * fold 模式的展开态：本包没有可自绘的权威布局展开视图，直接委托原生渲染器（设计 D1）。
+ * 行号 / 语法高亮 / 截断提示 / bash 全量输出因此与 `native` 模式 1:1 一致。
+ */
+export function renderNativeExpanded(
+  original: AnyToolDef,
+  stage: "call" | "result",
+  payload: unknown,
+  theme: Theme,
+  ctx: ToolRenderContext<any, unknown>,
+): Component {
+  // 不传 lastComponent：折叠态可能已 mutate 过该槽返回的组件，复用会残留旧布局
+  const base = { ...ctx, lastComponent: undefined, expanded: true } as never;
+  if (stage === "call") {
+    return (
+      (original.renderCall?.(ctx.args as never, theme as never, base) as Component | undefined) ?? new Text("", 0, 0)
+    );
+  }
+  return (
+    (original.renderResult?.(
+      payload as never,
+      { expanded: true, isPartial: ctx.isPartial } as never,
+      theme as never,
+      base,
+    ) as Component | undefined) ?? new Text("", 0, 0)
+  );
+}
+
+export function overrideTool(
   pi: ExtensionAPI,
   name: string,
   cwd: string,
@@ -51,7 +83,11 @@ function override(
   const renderCall = (args: unknown, theme: Theme, context: ToolRenderContext<any, unknown>): Component => {
     const config = cfgGetter();
     if (config.mode === "native") {
-      return (original.renderCall?.(args as never, theme as never, context as any) as Component) ?? new Text("", 0, 0);
+      return renderNativeExpanded(original, "call", args, theme, context);
+    }
+    // fold 展开态：由 result 槽聚合单盒，call 槽退让为 0 行
+    if (config.mode === "fold" && context.expanded === true) {
+      return renderExpandedFold(original, "call", args, theme, context);
     }
     return renderBlock(context as any, {
       name: name,
@@ -72,7 +108,13 @@ function override(
   ): Component => {
     const config = cfgGetter();
     if (config.mode === "native") {
-      return (original.renderResult?.(result as never, options as never, theme as never, context as any) as Component) ?? new Text("", 0, 0);
+      return renderNativeExpanded(original, "result", result, theme, context);
+    }
+    // fold 展开态：聚合原生 call 头 + 原生 result 体进单个自绘盒（与折叠态同背景）。
+    // options.expanded 与 ctx.expanded 任一为真即视为展开。
+    const expanded = options.expanded === true || context.expanded === true;
+    if (config.mode === "fold" && expanded) {
+      return renderExpandedFold(original, "result", result, theme, context);
     }
     return renderBlock(context as any, {
       name: name,
@@ -93,9 +135,40 @@ function override(
   });
 }
 
+/**
+ * fold 模式展开态（内置四工具）：把原生渲染内容聚合进**单个自绘盒子**，背景与折叠态同名配色。
+ *
+ * 为什么不能直接返回裸原生组件：self-shell 的 selfRenderContainer 是普通 Container（无 Box 背景），
+ * 原生 read/bash 渲染器返回的也是无背景 Text，展开后整块掉回终端默认背景，与折叠态的绿条完全不同——迷惑。
+ * 收敛到单盒：由 result 槽独占产出 `[原生 call 头 + 原生 result 体]`（call 槽退让 0 行），
+ * 因此展开体与折叠态同背景、同单盒形态，内容仍是原生视图（行号/着色/截断提示 1:1）。
+ */
+export function renderExpandedFold(
+  original: AnyToolDef,
+  stage: "call" | "result",
+  payload: unknown,
+  theme: Theme,
+  ctx: ToolRenderContext<any, unknown>,
+): Component {
+  if (stage === "call") return new Text("", 0, 0);
+  const bgFn = bgFor("result", ctx.isError, theme);
+  const base = { ...ctx, lastComponent: undefined, expanded: true } as never;
+  const stack = new Container();
+  const call = original.renderCall?.(ctx.args as never, theme as never, base);
+  if (call) stack.addChild(call as Component);
+  const body = original.renderResult?.(
+    payload as never,
+    { expanded: true, isPartial: ctx.isPartial } as never,
+    theme as never,
+    base,
+  );
+  if (body) stack.addChild(body as Component);
+  return buildBoxedBlock(stack, bgFn, ctx.outputPad ?? 1);
+}
+
 export function registerOverrides(pi: ExtensionAPI, cwd: string, cfgGetter: () => FoldBlocksConfig): void {
-  override(pi, "read", cwd, createReadToolDefinition as never, cfgGetter);
-  override(pi, "write", cwd, createWriteToolDefinition as never, cfgGetter);
-  override(pi, "edit", cwd, createEditToolDefinition as never, cfgGetter);
-  override(pi, "bash", cwd, createBashToolDefinition as never, cfgGetter);
+  overrideTool(pi, "read", cwd, createReadToolDefinition as never, cfgGetter);
+  overrideTool(pi, "write", cwd, createWriteToolDefinition as never, cfgGetter);
+  overrideTool(pi, "edit", cwd, createEditToolDefinition as never, cfgGetter);
+  overrideTool(pi, "bash", cwd, createBashToolDefinition as never, cfgGetter);
 }

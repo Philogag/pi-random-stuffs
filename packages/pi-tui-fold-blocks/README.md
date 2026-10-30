@@ -25,6 +25,7 @@ pi install npm:@philogag/pi-tui-fold-blocks
 - **智能 bash 摘要**:自动剥离 `cd ... &&` / `source ... &&` 前缀,提取关键命令
 - **路径样式可选**:`relative` / `absolute` / `basename`;git worktree 路径自动折叠
 - **nerd font 图标**:默认开启,可关闭(兼容无 nerd font 字体的终端)
+- **单击展开**:`fold` 模式下单击任一块即可展开该块单独查看(再单击收起),不影响其它块
 - **非侵入**:`execute` 原样委托给内置工具,不改变任何行为
 
 ## 使用
@@ -112,6 +113,27 @@ renderOwnedBlock(ctx, { name, stage, args, result, cwd, config, theme }, (ctx, o
 ```
 
 `renderOwnedBlock(ctx, opts, lineBuilder)` 语义与内置 `renderBlock` 一致:hide 模式返回 0 行空 `Text`;单帧归属(call 槽在 `ctx.isPartial` 时拥有该行,result 槽在 `!ctx.isPartial` 时拥有,另一槽退让为 0 行);`lineBuilder` 产出空文本 → 0 行。行内布局(截断策略/三态背景)由 `buildBlockComponent` / `bgFor` 保证,与内置工具块同形。
+
+### 单击展开
+
+`fold` 模式下单击一个块(pi-tui 的 MouseRegion 把单击映射为 `ctx.expanded` 切换)即展开该单块,再单击收起。只影响被点的那一个块,不动全局模式。
+
+- **内置四工具**:展开态直接委托原生渲染器(`renderResult` 以 `expanded: true` 调用),因此行号、语法高亮、截断提示、bash 全量输出与 `native` 模式 1:1——展开后看到的就是原生视图,不再叠加折叠摘要行。
+- **`hide` 模式**:忽略单击,块仍完全不渲染。
+- **`native` 模式**:本来就是原生视图,不受影响。
+- **分片归属不变**:展开态仍由单槽产出,不会像原生 call+result 双盒那样在外多出一条边框。
+
+外部扩展(无原生渲染器可委托)用 `renderOwnedBlock` 时,展开态默认渲染「折叠摘要行 + `contentText(result)` 原文」;想自绘展开体则传 `expandedBody`:
+
+```ts
+renderOwnedBlock(ctx, {
+  name, stage, args, result, cwd, config, theme,
+  expandedBody: (ctx, opts) =>
+    ctx.expanded && opts.stage === "result" ? myPrettyBody(opts.result, opts.theme) : undefined,
+}, lineBuilder);
+```
+
+`expandedBody` 返回 `undefined` 时回退到原文(空结果 → 0 行)。不要自己再套背景盒:外层已用 `buildBoxedBlock` 给了背景与 padding。
 
 ### 稳定性声明
 

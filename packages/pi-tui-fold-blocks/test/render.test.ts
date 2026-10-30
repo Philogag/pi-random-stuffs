@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { Text, visibleWidth } from "@earendil-works/pi-tui";
 import {
   buildReadBlockText,
   buildWriteBlockText,
@@ -6,6 +7,8 @@ import {
   buildBashBlockText,
   contentExitCode,
   contentLineCount,
+  contentText,
+  buildBoxedBlock,
   buildBlockComponent,
   renderOwnedBlock,
   renderBlock,
@@ -261,5 +264,102 @@ describe("renderOwnedBlock", () => {
     const viaRenderBlockPartial = renderBlock(partialCtx, { ...optsFor("bash", "result"), args: { command: "npm test" }, result }).render(60);
     expect(ownedPartial).toHaveLength(0);
     expect(ownedPartial).toEqual(viaRenderBlockPartial);
+  });
+});
+
+describe("contentText", () => {
+  it("拼接所有 text 块", () => {
+    expect(contentText({ content: [{ type: "text", text: "a\nb" }, { type: "text", text: "c" }] })).toBe("a\nbc");
+  });
+  it("缺失/非数组/空内容 → 空串", () => {
+    expect(contentText(undefined)).toBe("");
+    expect(contentText({})).toBe("");
+    expect(contentText({ content: [] })).toBe("");
+  });
+});
+
+describe("buildBoxedBlock", () => {
+  const bg = (t: string) => `\x1b[48;5;22m${t}\x1b[49m`;
+
+  it("多行内容每行都带背景且 pad 到给定宽度", () => {
+    const lines = buildBoxedBlock(new Text("aa\nbb", 0, 0), bg, 1).render(10);
+    expect(lines).toHaveLength(4); // paddingY=1 上下各一行
+    for (const l of lines) expect(visibleWidth(l)).toBe(10);
+    expect(lines.filter((l) => l.includes("48;5;22m")).length).toBe(4);
+  });
+
+  it("paddingX=0 时不加左右留白", () => {
+    const lines = buildBoxedBlock(new Text("aa", 0, 0), bg, 0).render(4);
+    expect(stripAnsi(lines[1]!)).toBe("aa  ");
+  });
+});
+
+describe("renderOwnedBlock — expanded", () => {
+  const theme = {
+    bg: (_color: string, text: string) => text,
+    fg: (_color: string, text: string) => text,
+  } as never;
+  const opts = (over: Partial<RenderBlockOpts> = {}): RenderBlockOpts => ({
+    name: "bash",
+    stage: "result",
+    args: { command: "npm test" },
+    result: { content: [{ type: "text", text: "line1\nline2\nline3" }] },
+    cwd: CWD,
+    config: DEFAULT_CONFIG,
+    theme,
+    ...over,
+  });
+  const bashBuilder = (ctx: ToolRenderContext, o: RenderBlockOpts) => buildBashBlockText(ctx, o);
+
+  it("展开态:摘要行仍在 + 原文逐行,行数 > 折叠态", () => {
+    const collapsed = renderOwnedBlock(makeCtx({ command: "npm test" }), opts(), bashBuilder).render(40);
+    const expandedCtx = { ...makeCtx({ command: "npm test" }), expanded: true };
+    const expanded = renderOwnedBlock(expandedCtx, opts(), bashBuilder).render(40);
+    expect(expanded.length).toBeGreaterThan(collapsed.length);
+    const flat = expanded.map(stripAnsi).join("\n");
+    expect(flat).toContain("npm test");
+    expect(flat).toContain("line1");
+    expect(flat).toContain("line3");
+  });
+
+  it("expandedBody 回调优先于原文", () => {
+    const expandedCtx = { ...makeCtx({ command: "npm test" }), expanded: true };
+    const comp = renderOwnedBlock(
+      expandedCtx,
+      opts({ expandedBody: () => new Text("CUSTOM-BODY", 0, 0) }),
+      bashBuilder,
+    );
+    const flat = comp.render(40).map(stripAnsi).join("\n");
+    expect(flat).toContain("CUSTOM-BODY");
+    expect(flat).not.toContain("line1");
+  });
+
+  it("hide 模式忽略 expanded → 0 行", () => {
+    const expandedCtx = { ...makeCtx({ command: "npm test" }), expanded: true };
+    const lines = renderOwnedBlock(
+      expandedCtx,
+      opts({ config: { ...DEFAULT_CONFIG, mode: "hide" } }),
+      bashBuilder,
+    ).render(40);
+    expect(lines).toHaveLength(0);
+  });
+
+  it("折叠态(expanded:false)行数与背景段数与改动前一致", () => {
+    const lines = renderOwnedBlock(makeCtx({ command: "npm test" }), opts(), bashBuilder).render(40);
+    expect(lines).toHaveLength(3); // 上下 padding 各 1 + 单行
+  });
+
+  it("展开态背景仍来自三态(bg 调用名可观测)", () => {
+    const calls: string[] = [];
+    const spyTheme = {
+      bg: (color: string, text: string) => {
+        calls.push(color);
+        return text;
+      },
+      fg: (_color: string, text: string) => text,
+    } as never;
+    const errCtx = { ...makeCtx({ command: "npm test" }, { isError: true }), expanded: true };
+    renderOwnedBlock(errCtx, opts({ theme: spyTheme }), bashBuilder).render(40);
+    expect(calls).toContain("toolErrorBg");
   });
 });

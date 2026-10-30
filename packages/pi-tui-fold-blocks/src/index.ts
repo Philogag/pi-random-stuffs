@@ -5,22 +5,25 @@ import { createModeState } from "./mode.js";
 import { registerOverrides } from "./overrides.js";
 import { openSettings } from "./settings.js";
 import { markFoldBlocksActive, publishConfig, getFoldConfig, subscribeFoldConfig, isFoldBlocksActive, subscribeFoldBlocksActive } from "./compat.js";
-import { renderOwnedBlock, buildBlockComponent, contentLineCount, contentExitCode, type LineContext } from "./render.js";
+import { renderOwnedBlock, buildBlockComponent, buildBoxedBlock, contentLineCount, contentExitCode, contentText, type LineContext, type RenderBlockOpts } from "./render.js";
 import { foldCommand, type FoldCommandOpts } from "./folders/command.js";
 import type { ToolRenderContext } from "./overrides.js";
 
 // 兼容导出面(供其他扩展复用折叠渲染能力)。类型/常量/函数逐一来自其定义模块:
-//   renderOwnedBlock/LineContext/render.ts;buildBlockComponent/contentLineCount/contentExitCode 同;
+//   renderOwnedBlock/LineContext/RenderBlockOpts/render.ts;buildBlockComponent/buildBoxedBlock/contentLineCount/contentExitCode/contentText 同;
 //   foldCommand(+FoldCommandOpts) 在 folders/command.ts;FoldBlocksConfig 在 config.ts;
 //   ToolRenderContext 在 overrides.ts;激活/配置单例在 compat.ts。
 export {
   renderOwnedBlock,
   buildBlockComponent,
+  buildBoxedBlock,
   contentLineCount,
   contentExitCode,
+  contentText,
   foldCommand,
   type FoldCommandOpts,
   type LineContext,
+  type RenderBlockOpts,
   type FoldBlocksConfig,
   type ToolRenderContext,
   getFoldConfig,

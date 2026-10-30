@@ -1,6 +1,6 @@
 {
   "name": "@philogag/pi-tui-fold-blocks",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "pi extension: fold tool call block into one line in tui",
   "type": "module",
   "main": "./dist/index.js",
@@ -29,7 +29,8 @@
     "build": "tsc -b",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "lint": "echo \"no linter configured\""
+    "lint": "echo \"no linter configured\"",
+    "smoke": "node scripts/smoke-click.mjs"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
