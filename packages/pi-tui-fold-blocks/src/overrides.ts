@@ -48,12 +48,12 @@ function override(
 ): void {
   const original = factory(cwd);
 
-  const renderCall = (args: unknown, theme: Theme, context: ToolRenderContext): Component => {
+  const renderCall = (args: unknown, theme: Theme, context: ToolRenderContext<any, unknown>): Component => {
     const config = cfgGetter();
     if (config.mode === "native") {
-      return (original.renderCall?.(args as never, theme as never, context) as Component) ?? new Text("", 0, 0);
+      return (original.renderCall?.(args as never, theme as never, context as any) as Component) ?? new Text("", 0, 0);
     }
-    return renderBlock(context, {
+    return renderBlock(context as any, {
       name: name,
       stage: "call",
       args: context.args,
@@ -68,13 +68,13 @@ function override(
     result: unknown,
     options: { expanded: boolean; isPartial: boolean },
     theme: Theme,
-    context: ToolRenderContext,
+    context: ToolRenderContext<any, unknown>,
   ): Component => {
     const config = cfgGetter();
     if (config.mode === "native") {
-      return (original.renderResult?.(result as never, options as never, theme as never, context) as Component) ?? new Text("", 0, 0);
+      return (original.renderResult?.(result as never, options as never, theme as never, context as any) as Component) ?? new Text("", 0, 0);
     }
-    return renderBlock(context, {
+    return renderBlock(context as any, {
       name: name,
       stage: "result",
       args: context.args,

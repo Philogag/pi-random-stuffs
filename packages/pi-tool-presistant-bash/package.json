@@ -12,17 +12,26 @@
     }
   },
   "pi": {
-    "extensions": ["dist/index.js"]
+    "extensions": [
+      "dist/index.js"
+    ]
   },
-  "files": ["dist"],
-  "keywords": ["pi", "extension", "bash", "session", "persistent"],
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "pi",
+    "extension",
+    "bash",
+    "session",
+    "persistent"
+  ],
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
     "lint": "echo \"no linter configured\""
   },
-  "dependencies": {},
   "optionalDependencies": {
     "@philogag/pi-tui-fold-blocks": "workspace:*"
   },
@@ -33,8 +42,8 @@
     "typebox": "*"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.4.0",
     "@philogag/pi-tui-fold-blocks": "workspace:*",
-    "@earendil-works/pi-coding-agent": "^0.84.3",
     "typebox": "^1.3.19",
     "typescript": "^5.6.3",
     "vitest": "^4.1.11"
