@@ -1,6 +1,6 @@
 // packages/pi-tui-fold-blocks/test/overrides-expand.test.ts
 import { describe, it, expect, vi } from "vitest";
-import { Box, Text } from "@earendil-works/pi-tui";
+import { Box, Container, Text } from "@earendil-works/pi-tui";
 import { overrideTool, type ToolRenderContext } from "../src/overrides.js";
 import { DEFAULT_CONFIG, type FoldBlocksConfig } from "../src/config.js";
 
@@ -183,5 +183,36 @@ describe("overrideTool — fold 模式展开态聚合原生为单盒", () => {
     expect(callIdx).toBe(1);
     expect(rows[0].trim()).toBe("");           // 唯一留白行(空串)
     expect(rows.join("\n")).toContain("BODY");// 结果体仍在
+  });
+
+  // 回归 TUI bug:edit 块首次点击展开只显示 call 头,折叠后二次展开才完整。
+  // 根因:edit 的原生 renderResult 会把 diff(经 setEditPreview+buildEditCallComponent)
+  // 写回 renderCall 已返回的同一个 call Box(state.callComponent),而其自身返回一个空
+  // Container。renderExpandedFold 若在调用 renderResult **之前**就当次解壳 call,则首次
+  // 展开只取到 header;renderResult 对 call 盒的补写不被捕获 → 头-only。二次展开时
+  // state.callComponent 已带 preview,renderCall 直接返回完整盒,才恢复正常。
+  // 修复:先调用 renderResult,再解壳 call(把原生对 call 盒的补写纳入同一盒)。
+  it("回归 edit:原生 renderResult 补写 call 盒后,展开盒仍含 call 头 + 结果体(首次展开完整)", () => {
+    const shared = new Box(1, 1);
+    const mutationCall = vi.fn(() => {
+      shared.clear();
+      shared.addChild(new Text("CALL-HEAD", 0, 0));
+      return shared;
+    });
+    const mutationResult = vi.fn(() => {
+      // 模拟 edit 原生 renderResult:把结果体写回同一 call 盒,自身返回空体
+      shared.addChild(new Text("RESULT-BODY", 0, 0));
+      return new Container();
+    });
+    const original = { renderCall: mutationCall, renderResult: mutationResult, execute: vi.fn() } as never;
+    const t = register(FOLD, original);
+    const ctx = makeCtx({ path: "a.ts" }, { expanded: true });
+    const flat = t
+      .renderResult(RESULT, { expanded: true, isPartial: false }, spyTheme().theme, ctx)
+      .render(60)
+      .map(stripAnsi)
+      .join("\n");
+    expect(flat).toContain("CALL-HEAD");
+    expect(flat).toContain("RESULT-BODY");
   });
 });

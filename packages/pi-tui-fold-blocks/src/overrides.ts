@@ -173,13 +173,19 @@ export function renderExpandedFold(
   const base = { ...ctx, lastComponent: undefined, expanded: true } as never;
   const stack = new Container();
   const call = original.renderCall?.(ctx.args as never, theme as never, base) as Component | undefined;
-  for (const c of unwrapBoxChildren(call)) stack.addChild(c);
   const body = original.renderResult?.(
     payload as never,
     { expanded: true, isPartial: ctx.isPartial } as never,
     theme as never,
     base,
   );
+  // edit 的原生 renderResult 会把 diff(经 setEditPreview + buildEditCallComponent)写回
+  // renderCall 已返回的同一个 call Box(state.callComponent),自身却返回空的 Container。
+  // 若在调用 renderResult 之前就当次解壳 call,首次展开(此时 call 盒内尚无 preview)只取到
+  // call 头,原生 result 对它的补写不被捕获 → 展开不完整(回归 bug);for 循环因此移到
+  // renderResult 之后,把原生对 call 盒的补写纳入同一展开盒。其余工具的 renderResult 不
+  // 改动 call 盒,解壳时序对它们无影响。
+  for (const c of unwrapBoxChildren(call)) stack.addChild(c);
   if (body) stack.addChild(body as Component);
   return buildBoxedBlock(stack, bgFn, ctx.outputPad ?? 1);
 }
