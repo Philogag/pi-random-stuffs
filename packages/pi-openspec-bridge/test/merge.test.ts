@@ -9,8 +9,8 @@ import {
   mergeTasks,
   parseTasksFile,
   readMergedTasks,
-} from "../src/merge.js";
-import type { ArtifactStatus, StatusJson } from "../src/types.js";
+} from "../src/status/merge.js";
+import type { ArtifactStatus, StatusJson } from "../src/status/types.js";
 
 describe("parseTasksFile", () => {
   it("parses checked + unchecked tasks by ID", () => {

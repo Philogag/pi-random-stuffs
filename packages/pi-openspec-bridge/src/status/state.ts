@@ -8,7 +8,7 @@ export interface PersistedLock {
   version: 1;
 }
 
-export const LOCK_CUSTOM_TYPE = "pi-tui-openspec-status";
+export const LOCK_CUSTOM_TYPE = "pi-openspec-bridge";
 
 function isPersistedLock(data: unknown): data is PersistedLock {
   if (typeof data !== "object" || data === null) return false;

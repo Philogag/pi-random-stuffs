@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { listActiveChanges } from "../src/discover.js";
+import { listActiveChanges } from "../src/status/discover.js";
 
 describe("listActiveChanges", () => {
   let root: string;

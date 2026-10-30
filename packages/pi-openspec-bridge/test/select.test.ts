@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 
 // Paths are relative to THIS file (test/): the mocked modules live in ../src.
-vi.mock("../src/openspec.js", () => ({ runOpenspecStatus: vi.fn() }));
-vi.mock("../src/discover.js", () => ({ listActiveChanges: vi.fn() }));
+vi.mock("../src/status/openspec.js", () => ({ runOpenspecStatus: vi.fn() }));
+vi.mock("../src/status/discover.js", () => ({ listActiveChanges: vi.fn() }));
 
-import piTuiOpenspecStatus from "../src/index.js";
-import { runOpenspecStatus } from "../src/openspec.js";
-import { listActiveChanges } from "../src/discover.js";
+import piOpenspecBridge from "../src/index.js";
+import { runOpenspecStatus } from "../src/status/openspec.js";
+import { listActiveChanges } from "../src/status/discover.js";
 
 const mockedRunOpenspecStatus = vi.mocked(runOpenspecStatus);
 const mockedListActiveChanges = vi.mocked(listActiveChanges);
@@ -22,6 +22,7 @@ type CommandHandler = (
 
 function makePi() {
   const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
+  const tools: string[] = [];
   let command: CommandHandler | undefined;
   return {
     on(event: string, h: (...a: unknown[]) => void) {
@@ -32,6 +33,9 @@ function makePi() {
     },
     registerCommand(_name: string, opts: { handler: CommandHandler }) {
       command = opts.handler;
+    },
+    registerTool(tool: { name: string }) {
+      tools.push(tool.name);
     },
     runCommand(args: string, ctx: Parameters<CommandHandler>[1]) {
       return command?.(args, ctx);
@@ -47,7 +51,7 @@ async function tick() {
   await new Promise((r) => setImmediate(r));
 }
 
-describe("piTuiOpenspecStatus — /tui-openspec-select", () => {
+describe("piOpenspecBridge — /openspec-bridge", () => {
   let tmpRoot: string;
   let pi: ReturnType<typeof makePi>;
   let statuses: Array<string | undefined>;
@@ -60,12 +64,12 @@ describe("piTuiOpenspecStatus — /tui-openspec-select", () => {
   });
 
   beforeEach(() => {
-    tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-select-"));
+    tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-openspec-bridge-select-"));
     pi = makePi();
     statuses = [];
     // The factory receives only (pi, options); command handlers get
     // their own ctx via runCommand(cmdCtx) below.
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     mockedRunOpenspecStatus.mockReset();
     mockedListActiveChanges.mockReset();
   });

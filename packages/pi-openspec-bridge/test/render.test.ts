@@ -3,18 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import type { PersistedLock } from "../src/state.js";
-import type { ArtifactStatus } from "../src/types.js";
-import { OpenSpecStatusRender, formatArtifactTokens, formatProgressBar, renderLine } from "../src/render.js";
+import type { PersistedLock } from "../src/status/state.js";
+import type { ArtifactStatus } from "../src/status/types.js";
+import { OpenSpecStatusRender, formatArtifactTokens, formatProgressBar, renderLine } from "../src/status/render.js";
 
 // render.ts spawns the openspec CLI in renderText(); stub it so the
 // async render path is fast and deterministic (same pattern as
 // unlock.test.ts). Only used by the "async auto-unlock" describe below.
-vi.mock("../src/openspec.js", () => ({
+vi.mock("../src/status/openspec.js", () => ({
   runOpenspecStatus: vi.fn(),
 }));
 
-import { runOpenspecStatus } from "../src/openspec.js";
+import { runOpenspecStatus } from "../src/status/openspec.js";
 
 const mockedRunOpenspecStatus = vi.mocked(runOpenspecStatus);
 

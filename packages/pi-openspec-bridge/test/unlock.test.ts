@@ -20,18 +20,19 @@ import * as path from "node:path";
 
 // vi.mock is hoisted ABOVE all imports by vitest's transformer.
 // Path is relative to THIS file (test/): the mocked modules live in ../src.
-vi.mock("../src/openspec.js", () => ({
+vi.mock("../src/status/openspec.js", () => ({
   runOpenspecStatus: vi.fn(),
 }));
 
-import piTuiOpenspecStatus from "../src/index.js";
-import { runOpenspecStatus } from "../src/openspec.js";
+import piOpenspecBridge from "../src/index.js";
+import { runOpenspecStatus } from "../src/status/openspec.js";
 
 const mockedRunOpenspecStatus = vi.mocked(runOpenspecStatus);
 
 function makePi() {
   const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
   const commands: string[] = [];
+  const tools: string[] = [];
   return {
     on(event: string, h: (...a: unknown[]) => void) {
       (listeners[event] ??= []).push(h);
@@ -41,6 +42,9 @@ function makePi() {
     },
     registerCommand(name: string, _opts: unknown) {
       commands.push(name);
+    },
+    registerTool(tool: { name: string }) {
+      tools.push(tool.name);
     },
   };
 }
@@ -66,7 +70,7 @@ async function tick() {
   await new Promise((r) => setImmediate(r));
 }
 
-describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
+describe("piOpenspecBridge — multi-source scan + unlock", () => {
   let tmpRoot: string;
   let pi: ReturnType<typeof makePi>;
   let calls: CallRecord[];
@@ -87,7 +91,7 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
       },
     };
     // The factory receives only (pi, options); ctx is delivered per-event.
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     mockedRunOpenspecStatus.mockReset();
   });
 
@@ -137,7 +141,7 @@ describe("piTuiOpenspecStatus — multi-source scan + unlock", () => {
     pi.fire("session_start", {}, ctx);
     await tick();
     expect(calls).toEqual([
-      { id: "pi-tui-openspec-status", text: undefined },
+      { id: "pi-openspec-bridge", text: undefined },
     ]);
 
     pi.fire("tool_call", {

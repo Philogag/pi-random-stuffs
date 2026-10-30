@@ -1,6 +1,6 @@
 // test/state.test.ts
 import { describe, expect, it } from "vitest";
-import { LOCK_CUSTOM_TYPE, findLastPersistedLock } from "../src/state.js";
+import { LOCK_CUSTOM_TYPE, findLastPersistedLock } from "../src/status/state.js";
 import type { CustomEntry } from "@earendil-works/pi-coding-agent";
 
 function customEntry(

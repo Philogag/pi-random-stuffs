@@ -5,18 +5,19 @@ import * as path from "node:path";
 
 // The render pipeline spawns the real openspec CLI; stub it so the
 // restore-publish tests are fast and deterministic.
-vi.mock("../src/openspec.js", () => ({
+vi.mock("../src/status/openspec.js", () => ({
   runOpenspecStatus: vi.fn(),
 }));
 
-import piTuiOpenspecStatus from "../src/index.js";
-import { runOpenspecStatus } from "../src/openspec.js";
+import piOpenspecBridge from "../src/index.js";
+import { runOpenspecStatus } from "../src/status/openspec.js";
 
 const mockedRunOpenspecStatus = vi.mocked(runOpenspecStatus);
 
 function makePi() {
   const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
   const commands: string[] = [];
+  const tools: string[] = [];
   return {
     on(event: string, h: (...a: unknown[]) => void) {
       (listeners[event] ??= []).push(h);
@@ -30,26 +31,33 @@ function makePi() {
     registerCommand(name: string, _opts: unknown) {
       commands.push(name);
     },
+    registerTool(tool: { name: string }) {
+      tools.push(tool.name);
+    },
     commands,
+    tools,
   };
 }
 
-describe("piTuiOpenspecStatus — extension entry registration", () => {
+describe("piOpenspecBridge — extension entry registration", () => {
   it("registers handlers + command unconditionally (factory receives only pi)", () => {
     const pi = makePi();
     // Docs contract: the factory gets ONLY ExtensionAPI — no ctx at
     // load time. Handlers are registered up front; the TUI gate runs
     // inside session_start, the first event that carries ctx.
-    piTuiOpenspecStatus(pi as never);
+    piOpenspecBridge(pi as never);
     expect(pi.listenerCount("session_start")).toBe(1);
     expect(pi.listenerCount("tool_call")).toBe(1);
     expect(pi.listenerCount("tool_result")).toBe(1);
-    expect(pi.commands).toEqual(["tui-openspec-select"]);
+    expect(pi.commands).toEqual(["openspec-bridge"]);
+    // The tool must be registered up front: it has no UI dependency and the
+    // agent needs it in headless (print/json/rpc) sessions too.
+    expect(pi.tools).toEqual(["openspec"]);
   });
 
   it("is defensive when loaded with no ctx at all (pi -e) — does not throw", () => {
     const pi = makePi();
-    expect(() => piTuiOpenspecStatus(pi as never, undefined)).not.toThrow();
+    expect(() => piOpenspecBridge(pi as never, undefined)).not.toThrow();
   });
 
   it("publishes setStatus(undefined) only after a tui session_start", () => {
@@ -61,13 +69,13 @@ describe("piTuiOpenspecStatus — extension entry registration", () => {
       cwd: "/repo",
       ui: { setStatus: (...a: unknown[]) => calls.push(a) },
     };
-    piTuiOpenspecStatus(pi as never);
+    piOpenspecBridge(pi as never);
     // tool events before any tui session_start are no-ops (no render).
     pi.fire("tool_call", { toolName: "bash", input: { command: "openspec status --change foo --json" } });
     pi.fire("tool_result", {});
     expect(calls).toEqual([]);
     pi.fire("session_start", {}, ctx);
-    expect(calls).toEqual([["pi-tui-openspec-status", undefined]]);
+    expect(calls).toEqual([["pi-openspec-bridge", undefined]]);
   });
 
   it.each(["print", "json", "rpc"] as const)(
@@ -81,7 +89,7 @@ describe("piTuiOpenspecStatus — extension entry registration", () => {
         cwd: "/repo",
         ui: { setStatus: (...a: unknown[]) => calls.push(a) },
       };
-      piTuiOpenspecStatus(pi as never);
+      piOpenspecBridge(pi as never);
       pi.fire("session_start", {}, ctx);
       pi.fire("tool_call", { toolName: "bash", input: { command: "openspec status --change foo --json" } });
       pi.fire("tool_result", {});
@@ -92,14 +100,14 @@ describe("piTuiOpenspecStatus — extension entry registration", () => {
   it("session_start with no ctx (undefined) does not throw and publishes nothing", () => {
     const pi = makePi();
     const calls: unknown[] = [];
-    piTuiOpenspecStatus(pi as never);
+    piOpenspecBridge(pi as never);
     pi.fire("session_start", {}, undefined);
     expect(calls).toEqual([]);
   });
 });
 
-describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore)", () => {
-  const LOCK_CUSTOM_TYPE = "pi-tui-openspec-status";
+describe("piOpenspecBridge — lock persistence (appendEntry + resume restore)", () => {
+  const LOCK_CUSTOM_TYPE = "pi-openspec-bridge";
 
   // Fake ExtensionAPI + sessionManager with a scriptable journal.
   function makePersistentPi(journal: unknown[] = []) {
@@ -116,6 +124,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
       registerCommand(_name: string, opts: { handler: (a: string, c: unknown) => Promise<void> }) {
         commandHandler = opts.handler;
       },
+      registerTool(_tool: { name: string }) {},
       runCommand(args: string, ctx: unknown) {
         return commandHandler?.(args, ctx);
       },
@@ -150,7 +159,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
 
   it("auto-lock via bash (setSpec) writes a custom entry with manualLock:false", () => {
     const pi = makePersistentPi();
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     pi.fire("session_start", {}, tuiCtx());
     pi.fire("tool_call", {
       toolName: "bash",
@@ -162,9 +171,9 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
     ]);
   });
 
-  it("manual lock via /tui-openspec-select writes a custom entry with manualLock:true", async () => {
+  it("manual lock via /openspec-bridge writes a custom entry with manualLock:true", async () => {
     const pi = makePersistentPi();
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     const cmdCtx = tuiCtx({
       ui: {
         select: async () => "beta" as const,
@@ -182,7 +191,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
     // The render pipeline requires a real change folder in cwd to
     // publish a line (zero alive sources → unlock + nothing). Create
     // it so the restore actually renders "gamma".
-    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-restore-"));
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-openspec-bridge-restore-"));
     mkdirSync(path.join(tmpRoot, "openspec", "changes", "gamma"), {
       recursive: true,
     });
@@ -194,7 +203,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
       schemaName: "spec-driven",
       artifacts: [],
     });
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     pi.fire("session_start", {}, tuiCtx({
       cwd: tmpRoot,
       entries: journal,
@@ -209,7 +218,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
   it("restores an auto-lock and keeps auto semantics (bash update still works)", async () => {
     const journal = [customEntry({ spec: "alpha", worktree: undefined, manualLock: false, version: 1 })];
     const pi = makePersistentPi(journal);
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     pi.fire("session_start", {}, tuiCtx({ entries: journal }));
     // Auto-restore → setSpec("alpha") (no manualLock). A subsequent
     // bash openspec command must still switch the tracked spec.
@@ -225,7 +234,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
 
   it("clearing the lock (None) persists an explicit empty state", async () => {
     const pi = makePersistentPi();
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     const select = async () => "alpha" as const;
     const cmdCtx = tuiCtx({ ui: { select, setStatus: () => {} } });
     await pi.runCommand("", cmdCtx as never);
@@ -247,7 +256,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
     // Spec scenario「resume 后恢复 worktree」: auto-lock journal with a
     // worktree path must drive setWorkTree so the status merges main +
     // worktree sources on resume.
-    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-wtrestore-"));
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-openspec-bridge-wtrestore-"));
     mkdirSync(path.join(tmpRoot, "openspec", "changes", "beta"), {
       recursive: true,
     });
@@ -265,7 +274,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
       schemaName: "spec-driven",
       artifacts: [],
     }));
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     pi.fire("session_start", {}, tuiCtx({
       cwd: tmpRoot,
       entries: journal,
@@ -283,11 +292,11 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
   it("resume from cleared (empty) state stays empty", async () => {
     // Spec scenario「清除锁定后持久化空状态」: clearLock persists the
     // empty marker; resume must NOT resurrect any lock.
-    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-emptyresume-"));
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-openspec-bridge-emptyresume-"));
     const journal = [customEntry({ spec: "", manualLock: false, version: 1 })];
     const pi = makePersistentPi(journal);
     const statuses: Array<string | undefined> = [];
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     pi.fire("session_start", {}, tuiCtx({
       cwd: tmpRoot,
       entries: journal,
@@ -304,7 +313,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
   it("restores a manual lock WITH worktree (setWorkTree applies as scan source)", async () => {
     // The manual branch pins the spec via lock(); the worktree must still
     // be adopted as an additional scan source.
-    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-wtmanual-"));
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-openspec-bridge-wtmanual-"));
     mkdirSync(path.join(tmpRoot, "openspec", "changes", "gamma"), {
       recursive: true,
     });
@@ -322,7 +331,7 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
       schemaName: "spec-driven",
       artifacts: [],
     }));
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     pi.fire("session_start", {}, tuiCtx({
       cwd: tmpRoot,
       entries: journal,
@@ -335,11 +344,11 @@ describe("piTuiOpenspecStatus — lock persistence (appendEntry + resume restore
   });
 
   it("restore ignores dirty journal data (wrong version) → stays empty", async () => {
-    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-tui-openspec-dirty-"));
+    const tmpRoot = mkdtempSync(path.join(tmpdir(), "pi-openspec-bridge-dirty-"));
     const journal = [customEntry({ spec: "gamma", manualLock: true, version: 2 })];
     const pi = makePersistentPi(journal);
     const statuses: Array<string | undefined> = [];
-    piTuiOpenspecStatus(pi as never, { debounceMs: 0 });
+    piOpenspecBridge(pi as never, { debounceMs: 0 });
     pi.fire("session_start", {}, tuiCtx({
       cwd: tmpRoot,
       entries: journal,
