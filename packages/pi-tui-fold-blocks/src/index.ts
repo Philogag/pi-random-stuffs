@@ -8,6 +8,7 @@ import { markFoldBlocksActive, publishConfig, getFoldConfig, subscribeFoldConfig
 import { renderOwnedBlock, buildBlockComponent, buildBoxedBlock, contentLineCount, contentExitCode, contentText, type LineContext, type RenderBlockOpts } from "./render.js";
 import { foldCommand, type FoldCommandOpts } from "./folders/command.js";
 import type { ToolRenderContext } from "./overrides.js";
+import { openspecShown, openspecStatusText, buildOpenspecBlockText, openspecRenderers, registerOpenspecRenderer, type OpenspecArgs } from "./openspec.js";
 
 // 兼容导出面(供其他扩展复用折叠渲染能力)。类型/常量/函数逐一来自其定义模块:
 //   renderOwnedBlock/LineContext/RenderBlockOpts/render.ts;buildBlockComponent/buildBoxedBlock/contentLineCount/contentExitCode/contentText 同;
@@ -30,6 +31,12 @@ export {
   isFoldBlocksActive,
   subscribeFoldBlocksActive,
   subscribeFoldConfig,
+  openspecShown,
+  openspecStatusText,
+  buildOpenspecBlockText,
+  openspecRenderers,
+  registerOpenspecRenderer,
+  type OpenspecArgs,
 };
 
 export default function (pi: ExtensionAPI): void {

@@ -6,6 +6,7 @@ import type { Component } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { FoldBlocksConfig } from "./config.js";
 import { renderBlock, buildBoxedBlock, bgFor } from "./render.js";
+import { registerOpenspecRenderer } from "./openspec.js";
 
 // ToolRenderContext 在 SDK 内部类型但未公开 re-export;从 ToolDefinition 推导
 type AnyToolDef = ToolDefinition<any, any, any>;
@@ -188,4 +189,6 @@ export function registerOverrides(pi: ExtensionAPI, cwd: string, cfgGetter: () =
   overrideTool(pi, "write", cwd, createWriteToolDefinition as never, cfgGetter);
   overrideTool(pi, "edit", cwd, createEditToolDefinition as never, cfgGetter);
   overrideTool(pi, "bash", cwd, createBashToolDefinition as never, cfgGetter);
+  // openspec 工具(pi-openspec-bridge 注册)走 registerToolRenderer 折叠,不重建定义、不动 execute。
+  registerOpenspecRenderer(pi, cfgGetter);
 }

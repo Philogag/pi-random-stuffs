@@ -26,6 +26,7 @@ pi install npm:@philogag/pi-tui-fold-blocks
 - **路径样式可选**:`relative` / `absolute` / `basename`;git worktree 路径自动折叠
 - **nerd font 图标**:默认开启,可关闭(兼容无 nerd font 字体的终端)
 - **单击展开**:`fold` 模式下单击任一块即可展开该块单独查看(再单击收起),不影响其它块
+- **openspec 工具折叠**:由 `pi-openspec-bridge` 注册的 `openspec` 工具在 `fold` 模式折叠为单行 `openspec - <subcommand> <args...> [--change X]` + 右状态(`SUCCESS` / `FAILED[n]`);单击展开 / `native` 模式委托原生渲染
 - **非侵入**:`execute` 原样委托给内置工具,不改变任何行为
 
 ## 使用
@@ -68,6 +69,14 @@ pi install npm:@philogag/pi-tui-fold-blocks
 - 通过 `pi.registerTool()` 以 `renderShell: "self"` 覆盖内置 `read` / `bash` / `edit` / `write` 的 `renderCall` / `renderResult`,`execute` 保持原样委托。
 - 折叠内容全部由 `renderResult` 单次渲染(`renderCall` 返回空 `Text`),保证布局一致。
 - 模式切换通过跨块重渲染(`invalidate`)实时生效,无需重启。
+
+### openspec 工具(与 pi-openspec-bridge 联动)
+
+`openspec` 工具由独立的 `pi-openspec-bridge` 扩展注册(`name: "openspec"`,未设渲染器 → pi 默认整块渲染)。本包另走登记 `pi.registerToolRenderer` 的按工具名 resolver:**只在 `toolName === "openspec"` 时返回自绘折叠渲染器,其余委托 `next()` 保持链路**。它不重建定义、不动 `execute`,因此不影响 openspec 工具的 session 记录与 LLM 上下文。
+
+- 折叠行内容只读 openspec 参数文档化的 `subcommand` / `args` / `change` 三个字段,不 import `pi-openspec-bridge`,零包间耦合。
+- 遵循全局三态:`native` → 委托原生渲染;`hide` → 不渲染;`fold` 折叠单行,单击展开为原生完整输出(再单击收起)。
+- 未安装 `pi-openspec-bridge` 时 resolver 对任何工具返回 `next()`,无副作用。
 
 ## 面向其他扩展的库面
 
@@ -148,6 +157,7 @@ pnpm install                 # 安装依赖(弱依赖来自宿主 pi,devDeps 供
 pnpm --filter @philogag/pi-tui-fold-blocks test        # 测试
 pnpm --filter @philogag/pi-tui-fold-blocks typecheck
 pnpm --filter @philogag/pi-tui-fold-blocks build       # 产出 dist/
+pnpm --filter @philogag/pi-tui-fold-blocks smoke:openspec   # openspec 折叠无头冒烟
 ```
 
 ### 依赖说明
@@ -157,4 +167,4 @@ pnpm --filter @philogag/pi-tui-fold-blocks build       # 产出 dist/
 ## 已知限制
 
 - `native` 模式下渲染委托给内置渲染(不叠加状态色框)——保留原生外观,换取模式切换的即时性。
-- 仅覆盖 `read` / `bash` / `edit` / `write` 四个高频工具;`grep` / `find` / `ls` 等保持原生渲染。
+- 仅覆盖 `read` / `bash` / `edit` / `write` 四个内置工具 + `openspec`(经 `registerToolRenderer`);`grep` / `find` / `ls` 等保持原生渲染。

@@ -29,6 +29,7 @@ function makeMockPi() {
     registerCommand: vi.fn(),
     registerShortcut: vi.fn(),
     registerFlag: vi.fn(),
+    registerToolRenderer: vi.fn(),
   };
   return { pi: pi as unknown as ExtensionAPI, handlers };
 }
@@ -53,6 +54,8 @@ describe("index 注册入口", () => {
       (c) => c[0].name,
     );
     expect(toolNames).toEqual(expect.arrayContaining(["read", "bash", "edit", "write"]));
+    // registerToolRenderer 也在工厂期注册(openspec 工具渲染覆盖),顶层无条件就位
+    expect(pi.registerToolRenderer).toHaveBeenCalledTimes(1);
     expect(handlers.get("session_start")).toBeDefined();
   });
 
