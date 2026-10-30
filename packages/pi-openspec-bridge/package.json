@@ -1,6 +1,6 @@
 {
   "name": "@philogag/pi-openspec-bridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "pi extension: openspec CLI bridge tool + openspec status bar",
   "type": "module",
   "main": "./dist/index.js",

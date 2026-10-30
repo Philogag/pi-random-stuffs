@@ -71,6 +71,11 @@ export function buildArgv(params: OpenspecToolParams): BuiltArgv {
 
   for (const spec of FLAGS) {
     if (!spec.flag) continue;
+    // Not every subcommand accepts every flag (e.g. `status` rejects
+    // `--allow-unknown`/`--no-interactive`). When a flag is scoped to
+    // other subcommands, silently drop it here rather than let the binary
+    // fail with an "unknown option" error.
+    if (spec.appliesTo && !spec.appliesTo.includes(subcommand)) continue;
     const raw = (params as Record<string, unknown>)[spec.key];
     if (raw === undefined || raw === null) continue;
 

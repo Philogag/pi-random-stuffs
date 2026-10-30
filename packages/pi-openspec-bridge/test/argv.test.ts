@@ -86,4 +86,102 @@ describe("buildArgv", () => {
       expect(argv).not.toContain("undefined");
     }
   });
+
+  it("drops flags the subcommand does not support (status rejects many flags)", () => {
+    // `status` supports only --change/--all/--schema/--json/--store.
+    expect(
+      buildArgv({
+        subcommand: "status",
+        change: "fold-openspec-block",
+        allowUnknown: true,
+        noInteractive: true,
+        scope: "root",
+        verbose: true,
+      }).argv,
+    ).toEqual(["status", "--change", "fold-openspec-block"]);
+  });
+
+  it("still emits flags the subcommand does support on status", () => {
+    expect(
+      buildArgv({ subcommand: "status", change: "x", schemaName: "s", json: true, all: true }).argv,
+    ).toEqual(["status", "--json", "--all", "--change", "x", "--schema", "s"]);
+  });
+
+  it("scopes config-only flags to config subcommands", () => {
+    // --allow-unknown/--string only exist on `config set`.
+    expect(
+      buildArgv({ subcommand: "status", allowUnknown: true, string: true } as never).argv,
+    ).toEqual(["status"]);
+    expect(
+      buildArgv({ subcommand: "config set", args: ["k", "v"], allowUnknown: true, string: true }).argv,
+    ).toEqual(["config", "set", "k", "v", "--string", "--allow-unknown"]);
+  });
+
+  it("treats spec list as distinct from list --specs", () => {
+    // `spec list` only understands --json/--long; --store/--archived are dropped.
+    expect(
+      buildArgv({ subcommand: "spec list", store: "s", archived: true, long: true }).argv,
+    ).toEqual(["spec", "list", "--long"]);
+    // whereas the plain `list` accepts them (while `--long` stays scoped to
+    // the spec/change list shorthands).
+    expect(
+      buildArgv({ subcommand: "list", store: "s", archived: true, long: true }).argv,
+    ).toEqual(["list", "--store", "s", "--archived"]);
+  });
+
+  it("emits --yes only where the CLI accepts it (archive, not new change)", () => {
+    expect(buildArgv({ subcommand: "archive", yes: true }).argv).toEqual(["archive", "--yes"]);
+    expect(buildArgv({ subcommand: "new change", args: ["x"], yes: true }).argv).toEqual([
+      "new",
+      "change",
+      "x",
+    ]);
+  });
+
+  it("keeps validate-only bulk flags on validate but not on change validate", () => {
+    expect(
+      buildArgv({ subcommand: "validate", report: "findings", concurrency: 4, strict: true }).argv,
+    ).toEqual(["validate", "--report", "findings", "--concurrency", "4", "--strict"]);
+    expect(buildArgv({ subcommand: "change validate", report: "findings", strict: true }).argv).toEqual([
+      "change",
+      "validate",
+      "--strict",
+    ]);
+  });
+
+  it("every flag declared in FLAGS is either scoped or universal-safe to emit somwhere", () => {
+    // Sanity guard: exercise each flag on a subcommand that accepts it, so a
+    // flag accidentally scoped to nothing (or to subcommands that reject it)
+    // is caught by a regression instead of silently never firing.
+    const scoped = buildArgv({
+      subcommand: "status",
+      change: "x",
+      schemaName: "s",
+      json: true,
+      all: true,
+      force: true,
+      dryRun: true,
+      check: true,
+      tools: "all",
+      language: "en",
+      profile: "core",
+      tool: "pi",
+      member: "m",
+      id: "i",
+      path: "/p",
+      artifacts: "specs",
+      defaultSchema: true,
+      report: "findings",
+      body: "b",
+      scope: "root",
+      strict: true,
+      concurrency: 2,
+      noValidate: true,
+      codeWorkspace: "/w",
+      verbose: true,
+    }).argv;
+    // None of the above except json/all/change/schemaName are supported by
+    // `status`; those unsupported must be filtered out.
+    expect(scoped).toEqual(["status", "--json", "--all", "--change", "x", "--schema", "s"]);
+  });
 });
