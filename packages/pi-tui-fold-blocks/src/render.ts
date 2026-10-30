@@ -21,7 +21,8 @@ export interface RenderBlockOpts {
   expandedBody?: (ctx: ToolRenderContext, opts: RenderBlockOpts) => Component | undefined;
 }
 
-function countRows(content: string): number {
+function countRows(content: string | undefined): number {
+  if (content === undefined) return 0; // 防御:某些工具 args 缺少 content(如 edit),不让整块渲染崩溃
   return content.split("\n").reduce((n, v) => v.trim() ? n + 1: n, 0)
 }
 
@@ -83,12 +84,13 @@ interface EditArgsSchema {
 export function buildEditBlockText(ctx: ToolRenderContext, opts: RenderBlockOpts): LineContext {
   const args = ctx.args as EditArgsSchema;
   const shown = foldPath(args.path ?? "", { cwd: opts.cwd, style: opts.config.fileBlocks.pathStyle, foldGitWorktree: opts.config.fileBlocks.foldGitWorktree });
-  const countOldRows = args.edits.reduce((n, v) => n + countRows(v.oldText), 0)
-  const countNewRows = args.edits.reduce((n, v) => n + countRows(v.newText), 0)
+  const edits = args.edits ?? [];
+  const countOldRows = edits.reduce((n, v) => n + countRows(v.oldText), 0)
+  const countNewRows = edits.reduce((n, v) => n + countRows(v.newText), 0)
   
   return {
     icon: opts.config.nerdFont ? "\uF044" : "",
-    tool: "write",
+    tool: "edit",
     shown: shown,
     tips: `[ -${countOldRows}, +${countNewRows} ]`,
     result: opts.stage === "call" ? "" 
@@ -378,7 +380,7 @@ export function renderBlock(ctx: ToolRenderContext, opts: RenderBlockOpts): Comp
   switch (opts.name) {
     case "read": lineBuilder = buildReadBlockText; break;
     case "write": lineBuilder = buildWriteBlockText; break;
-    case "edit": lineBuilder = buildWriteBlockText; break;
+    case "edit": lineBuilder = buildEditBlockText; break;
     case "bash": lineBuilder = buildBashBlockText; break;
     default:
       lineBuilder = () => ({ tool: "", shown: "" });

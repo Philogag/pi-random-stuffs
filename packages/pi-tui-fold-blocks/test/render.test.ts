@@ -265,6 +265,28 @@ describe("renderOwnedBlock", () => {
     expect(ownedPartial).toHaveLength(0);
     expect(ownedPartial).toEqual(viaRenderBlockPartial);
   });
+
+  // 回归:edit 的 args 是 { path, edits[] },没有顶层 content。此前 switch 把 edit 映射到
+  // buildWriteBlockText(读 args.content)→ countRows(undefined) 抛异常 → SDK try/catch 掉回
+  // 原生渲染,edit 块从未被接管折叠。必须映射到 buildEditBlockText 且不抛错。
+  it("edit 块可被接管折叠(不抛异常,产出摘要行)——回归 #edit-not-folded", () => {
+    const editArgs = { path: "src/main.ts", edits: [{ oldText: "a", newText: "b\nc" }] };
+    expect(() => {
+      const lines = renderBlock(makeCtx(editArgs), { ...optsFor("edit", "result"), args: editArgs }).render(60);
+      expect(lines.length).toBeGreaterThan(0);
+      expect(lines.map(stripAnsi).join("\n")).toContain("edit - src/main.ts");
+      expect(lines.map(stripAnsi).join("\n")).toContain("-1, +2");
+    }).not.toThrow();
+  });
+
+  it("write 块缺 content 时不抛异常(防御 countRows(undefined)=0)", () => {
+    const writeArgs = { path: "src/new.ts" };
+    expect(() => {
+      const lines = renderBlock(makeCtx(writeArgs), { ...optsFor("write", "result"), args: writeArgs }).render(60);
+      // 不抛即可;未来若要求缺 content 呈现形态,可再加断言
+      expect(Array.isArray(lines)).toBe(true);
+    }).not.toThrow();
+  });
 });
 
 describe("contentText", () => {
