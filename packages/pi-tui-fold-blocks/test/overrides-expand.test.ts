@@ -1,6 +1,6 @@
 // packages/pi-tui-fold-blocks/test/overrides-expand.test.ts
 import { describe, it, expect, vi } from "vitest";
-import { Text } from "@earendil-works/pi-tui";
+import { Box, Text } from "@earendil-works/pi-tui";
 import { overrideTool, type ToolRenderContext } from "../src/overrides.js";
 import { DEFAULT_CONFIG, type FoldBlocksConfig } from "../src/config.js";
 
@@ -161,5 +161,27 @@ describe("overrideTool — fold 模式展开态聚合原生为单盒", () => {
     for (const args of [...renderCall.mock.calls, ...renderResult.mock.calls]) {
       expect((args as any[])[2].lastComponent).toBeUndefined();
     }
+  });
+
+  // 回归 edit 顶部空两行:edit 的原生 renderCall 返回 Box(1,1)(自带 padding),其余工具返回单行 Text。
+  // renderExpandedFold 必须把 Box 解壳为子组件,让唯一留白来自外层 buildBoxedBlock(padY=1),
+  // 这样 CALL 行紧贴单行留白上方,不会被 Box 的 padding 再推出一层空行。
+  it("展开态:Box 型 call 头被解壳 → 顶部只有一行留白(回归 edit 空两行)", () => {
+    const boxCall = vi.fn(() => {
+      const b = new Box(2, 2); b.addChild(new Text("CALL", 0, 0)); return b;
+    });
+    const boxResult = vi.fn(() => new Text("BODY", 0, 0));
+    const original = { renderCall: boxCall, renderResult: boxResult, execute: vi.fn() } as never;
+    const t = register(FOLD, original);
+    const ctx = makeCtx({ path: "a.ts" }, { expanded: true });
+    // 用透传主题:bg 恒等返回,留白行 pad 后就是空串,便于精确定位 CALL 行的纵向位置
+    const identityTheme = { bg: (_c: string, x: string) => x, fg: (_c: string, x: string) => x } as never;
+    const rows = t.renderResult(RESULT, { expanded: true, isPartial: false }, identityTheme, ctx)
+      .render(60).map(stripAnsi);
+    const callIdx = rows.findIndex((r) => r.includes("CALL"));
+    // 顶部恰好一行留白(buildBoxedBlock padY=1);若 Box 的 padding 未解壳,CALL 会被推到第 3 行
+    expect(callIdx).toBe(1);
+    expect(rows[0].trim()).toBe("");           // 唯一留白行(空串)
+    expect(rows.join("\n")).toContain("BODY");// 结果体仍在
   });
 });

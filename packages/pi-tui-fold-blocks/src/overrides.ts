@@ -1,7 +1,7 @@
 // packages/pi-tui-fold-blocks/src/overrides.ts
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createReadToolDefinition, createBashToolDefinition, createEditToolDefinition, createWriteToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Container, Text } from "@earendil-works/pi-tui";
+import { Box, Container, Text } from "@earendil-works/pi-tui";
 import type { Component } from "@earendil-works/pi-tui";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { FoldBlocksConfig } from "./config.js";
@@ -143,6 +143,23 @@ export function overrideTool(
  * 收敛到单盒：由 result 槽独占产出 `[原生 call 头 + 原生 result 体]`（call 槽退让 0 行），
  * 因此展开体与折叠态同背景、同单盒形态，内容仍是原生视图（行号/着色/截断提示 1:1）。
  */
+
+/**
+ * 把原生 call 头的返回值平铺成要叠加进展开盒的子组件列表。
+ *
+ * 差异来源:read/write/bash 的原生 renderCall 返回一个无外框的单行 Text;而 edit 的原生
+ * renderCall 返回 `new Box(1, 1, …)`(renderers/edit.js 的 createEditCallRenderComponent),
+ * 该 Box 自带 paddingY=1 与自己的 header 背景。若原样叠加,展开盒里会平添一层 `[空行, 头, 空行]`
+ * (灰底),叠在下方 buildBoxedBlock 的绿色上留白之上 → edit 顶部空两行,与 read/write/bash 的空一行
+ * 不一致。这里的 Box 除了做把子内容包一层 padding/bg 的“壳”,别无承载;因此展开态取它的
+ * 子组件直接叠加,背景/留白统一交给外层的 buildBoxedBlock(单盒同背景),从而四工具顶部同款空一行。
+ * (`Box.children` 为 pi-tui 公开字段;非 Box 组件原样返回,read/write/bash 不受影响。)
+ */
+function unwrapBoxChildren(component: Component | undefined): Component[] {
+  if (!component) return [];
+  return component instanceof Box ? component.children : [component];
+}
+
 export function renderExpandedFold(
   original: AnyToolDef,
   stage: "call" | "result",
@@ -154,8 +171,8 @@ export function renderExpandedFold(
   const bgFn = bgFor("result", ctx.isError, theme);
   const base = { ...ctx, lastComponent: undefined, expanded: true } as never;
   const stack = new Container();
-  const call = original.renderCall?.(ctx.args as never, theme as never, base);
-  if (call) stack.addChild(call as Component);
+  const call = original.renderCall?.(ctx.args as never, theme as never, base) as Component | undefined;
+  for (const c of unwrapBoxChildren(call)) stack.addChild(c);
   const body = original.renderResult?.(
     payload as never,
     { expanded: true, isPartial: ctx.isPartial } as never,
