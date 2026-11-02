@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 import * as path from "node:path";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { runOpenspecStatus } from "./openspec.js";
+import { readSchemaName } from "./project-schema.js";
 import { mergeStatusResults, readMergedTasks } from "./merge.js";
 import type { PersistedLock } from "./state.js";
 import type { ArtifactStatus, MergedTasks } from "./types.js";
@@ -14,15 +15,63 @@ export const ARTIFACT_INITIALS: Record<ArtifactStatus["id"], string> = {
   tasks: "T",
 };
 
+/** Canonical artifact order for the `[P D S T]` group. */
+export const ARTIFACT_IDS = ["proposal", "design", "specs", "tasks"] as const;
+
 const BAR_WIDTH = 10;
 const FILLED = "█";
 const EMPTY = "░";
 
-export function formatArtifactTokens(statuses: ArtifactStatus[]): string {
-  return statuses
-    .filter((s): s is ArtifactStatus => s.id in ARTIFACT_INITIALS)
-    .map((s) => `${ARTIFACT_INITIALS[s.id]}${s.status === "done" ? "●" : "○"}`)
-    .join(" ");
+/**
+ * Per-status glyph. `done` is the only filled dot; every other real state is
+ * an empty dot (the CLI's "not done yet"); `unknown` — a state the CLI never
+ * emits, set when the status query failed — is a dash, so a degraded line
+ * never claims progress it does not know about.
+ */
+const SYMBOLS: Record<ArtifactStatus["status"], string> = {
+  done: "●",
+  ready: "○",
+  blocked: "○",
+  skipped: "○",
+  unknown: "–",
+};
+
+/** Shown in place of a schema name when it cannot be resolved at all. */
+export const UNKNOWN_SCHEMA = "?";
+
+/**
+ * Placeholder statuses for a failed status query: the canonical four slots,
+ * all `unknown` → `[P– D– S– T–]`. Keeping the slots visible means the line
+ * never shrinks to `[]` (which read like "no artifacts" instead of "no data").
+ */
+export function unknownArtifactStatuses(): ArtifactStatus[] {
+  return ARTIFACT_IDS.map((id) => ({ id, status: "unknown" as const }));
+}
+
+export function formatArtifactTokens(
+  statuses: ArtifactStatus[],
+  /** Slots to render as `–` when absent from `statuses` (degraded renders). */
+  placeholders: readonly ArtifactStatus["id"][] = [],
+): string {
+  const byId = new Map<ArtifactStatus["id"], ArtifactStatus>();
+  for (const s of statuses) {
+    if (s.id in ARTIFACT_INITIALS) byId.set(s.id, s);
+  }
+  // With placeholders the token group always covers the canonical four slots
+  // in canonical order (CLI order is not part of the contract); without them
+  // the CLI's order is preserved so callers keep full control.
+  const ids: ArtifactStatus["id"][] =
+    placeholders.length > 0
+      ? [...ARTIFACT_IDS]
+      : statuses.filter((s) => s.id in ARTIFACT_INITIALS).map((s) => s.id);
+  const tokens: string[] = [];
+  for (const id of ids) {
+    const s = byId.get(id);
+    tokens.push(
+      `${ARTIFACT_INITIALS[id]}${s ? (SYMBOLS[s.status] ?? "○") : SYMBOLS.unknown}`,
+    );
+  }
+  return tokens.join(" ");
 }
 
 export function formatProgressBar(done: number, total: number): string {
@@ -36,11 +85,13 @@ export function renderLine(
   schemaName: string,
   statuses: ArtifactStatus[],
   tasks: MergedTasks,
+  /** Slots rendered as `–` when the CLI did not report them. */
+  placeholders: readonly ArtifactStatus["id"][] = [],
 ): string {
   return [
     name,
     `(${schemaName})`,
-    `[${formatArtifactTokens(statuses)}]`,
+    `[${formatArtifactTokens(statuses, placeholders)}]`,
     "Tasks:",
     `${formatProgressBar(tasks.done, tasks.total)} ${tasks.done}/${tasks.total}`,
   ].join(" ");
@@ -242,11 +293,26 @@ export class OpenSpecStatusRender extends StatusRender {
     if (this.spec !== name) return "";
 
     const status = mergeStatusResults(statusResults);
+    if (!status) {
+      // Degraded render: the query failed for every alive source, so we know
+      // nothing about artifacts. Report "unknown" (`[P– D– S– T–]`) and read
+      // the schema name from the project files instead of hardcoding
+      // `spec-driven` — which is wrong on any project with a custom schema and
+      // was exactly what made a broken query look like a working status bar.
+      const schemaName =
+        (await readSchemaName(name, [mainCwd, wtCwd || undefined])) ??
+        UNKNOWN_SCHEMA;
+      if (this.spec !== name) return "";
+      return renderLine(name, schemaName, unknownArtifactStatuses(), tasks);    }
+
     return renderLine(
       name,
-      (status?.schemaName as string) || "spec-driven",
-      (status?.artifacts ?? []) as never,
+      (status.schemaName as string) ||
+        (await readSchemaName(name, [mainCwd, wtCwd || undefined])) ||
+        UNKNOWN_SCHEMA,
+      (status.artifacts ?? []) as never,
       tasks,
+      ARTIFACT_IDS,
     );
   }
 }

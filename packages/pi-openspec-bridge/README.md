@@ -66,6 +66,10 @@ add-dark-mode (spec-driven) [P● S● D○ T○] Tasks: ███░░░░�
   `session_start` / `/resume` 时恢复,并保留"手动锁定 vs 自动锁定"的区别。
 - **仅 TUI 生效**:print / json / rpc 模式不会调用 `ui.setStatus`;`openspec` tool 本身在所有模式可用。
 - 手动选择:`/openspec-bridge`(选 `None` 清空)。
+- **降级渲染**:`openspec status --json` 查询失败(CLI 缺失 / 超时 / 非零退出)时,状态条不再
+  谎报 `(spec-driven)` 与 `[]`:schema 从 `openspec/changes/<name>/.openspec.yaml` →
+  `openspec/config.yaml` 读取(读不到则 `(?)`),artifact 槽位显示为未知 `[P– D– S– T–]`,tasks 仍从
+  `tasks.md` 合并计算。例:`demo (superpowers-bridge-cn) [P– D– S– T–] Tasks: ░░░░░░░░░░ 0/0`。
 
 ## 二进制解析顺序
 

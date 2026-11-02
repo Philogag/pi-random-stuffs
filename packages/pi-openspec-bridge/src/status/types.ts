@@ -1,7 +1,12 @@
 // src/types.ts
 export interface ArtifactStatus {
   id: "proposal" | "design" | "specs" | "tasks";
-  status: "done" | "ready" | "blocked" | "skipped";
+  /**
+   * `unknown` is a client-side state only: the CLI never emits it. The status
+   * bar uses it when the status query failed, so the line can say "we do not
+   * know" instead of inventing a state.
+   */
+  status: "done" | "ready" | "blocked" | "skipped" | "unknown";
 }
 
 export interface StatusJson {

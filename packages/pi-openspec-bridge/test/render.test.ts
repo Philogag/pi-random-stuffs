@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import type { PersistedLock } from "../src/status/state.js";
 import type { ArtifactStatus } from "../src/status/types.js";
-import { OpenSpecStatusRender, formatArtifactTokens, formatProgressBar, renderLine } from "../src/status/render.js";
+import { OpenSpecStatusRender, ARTIFACT_IDS, formatArtifactTokens, formatProgressBar, renderLine, unknownArtifactStatuses } from "../src/status/render.js";
 
 // render.ts spawns the openspec CLI in renderText(); stub it so the
 // async render path is fast and deterministic (same pattern as
@@ -49,6 +49,23 @@ describe("formatArtifactTokens", () => {
   it("returns empty string for empty input", () => {
     expect(formatArtifactTokens([])).toBe("");
   });
+
+  it("renders unknown as `–` (degraded, no progress claim)", () => {
+    expect(formatArtifactTokens(unknownArtifactStatuses())).toBe("P– D– S– T–");
+  });
+
+  it("fills absent slots with `–` placeholders", () => {
+    const s: ArtifactStatus[] = [{ id: "proposal", status: "done" }];
+    expect(formatArtifactTokens(s, ARTIFACT_IDS)).toBe("P● D– S– T–");
+  });
+
+  it("does not duplicate a slot present in statuses", () => {
+    const s: ArtifactStatus[] = [
+      { id: "proposal", status: "done" },
+      { id: "tasks", status: "ready" },
+    ];
+    expect(formatArtifactTokens(s, ARTIFACT_IDS)).toBe("P● D– S– T○");
+  });
 });
 
 describe("formatProgressBar", () => {
@@ -89,6 +106,18 @@ describe("renderLine", () => {
   it("contains no newlines", () => {
     const line = renderLine("x", "y", [], { done: 0, total: 0 });
     expect(line.includes("\n")).toBe(false);
+  });
+
+  it("renders the documented degraded shape for a failed query", () => {
+    const line = renderLine(
+      "demo-change",
+      "superpowers-bridge-cn",
+      unknownArtifactStatuses(),
+      { done: 0, total: 0 },
+    );
+    expect(line).toBe(
+      "demo-change (superpowers-bridge-cn) [P– D– S– T–] Tasks: ░░░░░░░░░░ 0/0",
+    );
   });
 });
 

@@ -1,7 +1,10 @@
 # tui-openspec-status Specification
 
 ## Purpose
-TBD - created by archiving change add-pi-tui-openspec-status. Update Purpose after archive.
+
+把当前锁定的 OpenSpec change 的进度压成底部状态栏的一行：change 名、schema、四个产物槽位（P/D/S/T）、
+以及合并去重后的 tasks 完成度。锁定来源包括结构化 `openspec` tool 调用与手敲的 bash 命令，
+状态跨会话持久化，查询失败时降级而不是虚构数据。
 
 ## Requirements
 
@@ -49,7 +52,7 @@ TBD - created by archiving change add-pi-tui-openspec-status. Update Purpose aft
 
 ### Requirement: artifact 首字母与状态符号
 
-扩展 MUST 仅展示 schema 对外产物（`proposal.md` / `design.md` / `specs/**/*.md` / `tasks.md`）四类 artifact 的状态，首字母 MUST 分别为 `P` / `D` / `S` / `T`，状态符号 MUST 为 `●`（已完成）或 `○`（未完成）之一。首字母与状态符号 MUST 紧贴书写（如 `P●`），各 artifact token 之间 MUST 用单个空格分隔。planning-phase 内部产物（`brainstorm.md` / `verify.md` / `retrospective.md`）MUST 不出现在状态条上。
+扩展 MUST 仅展示 schema 对外产物（`proposal.md` / `design.md` / `specs/**/*.md` / `tasks.md`）四类 artifact 的状态，首字母 MUST 分别为 `P` / `D` / `S` / `T`，状态符号 MUST 为 `●`（已完成）或 `○`（未完成）之一；唯一例外是**降级渲染**（见「降级渲染：查询失败时不虚构状态」），此时未知状态 MUST 使用 `–`。首字母与状态符号 MUST 紧贴书写（如 `P●`），各 artifact token 之间 MUST 用单个空格分隔。planning-phase 内部产物（`brainstorm.md` / `verify.md` / `retrospective.md`）MUST 不出现在状态条上。
 
 #### Scenario: 4 个 artifact token 拼接
 - **WHEN** 当前 change 同时存在 `proposal.md` `design.md` `specs/**/spec.md` `tasks.md`
@@ -62,6 +65,36 @@ TBD - created by archiving change add-pi-tui-openspec-status. Update Purpose aft
 #### Scenario: 全 done
 - **WHEN** 4 个 artifact 全部完成
 - **THEN** 状态条显示 `[P● D● S● T●]`
+
+### Requirement: 降级渲染：查询失败时不虚构状态
+
+扩展 MUST 以 `openspec status --change <name> --json` 的输出作为 artifact 状态与 schema 名的唯一权威来源。当该查询失败（CLI 缺失、超时、退出码非零、JSON 解析失败），扩展 MUST NOT 虚构状态：
+
+1. schema 名 MUST 按与 CLI 一致的优先级从项目文件读取——先找 `openspec/changes/<name>/.openspec.yaml`，再找 `openspec/config.yaml`（主仓优先，其次 worktree），取其 `schema:` 标量；
+2. 两者都读不到时 schema 段 MUST 渲染为 `(?)`，MUST NOT 硬编码 `spec-driven`；
+3. artifact token MUST 渲染为四个占位槽 `[P– D– S– T–]`（`–` 表示未知），MUST NOT 渲染为空 `[]`；
+4. tasks 进度 MUST 仍按 `tasks.md` 正常合并渲染。
+
+#### Scenario: 查询失败但项目文件有自定义 schema
+- **WHEN** `openspec status` 退出码非零，`openspec/config.yaml` 含 `schema: superpowers-bridge-cn`，锁定 change 为 `demo`
+- **THEN** 状态条渲染 `demo (superpowers-bridge-cn) [P– D– S– T–] Tasks: ░░░░░░░░░░ 0/0`
+- **AND** MUST NOT 渲染 `(spec-driven)`，MUST NOT 渲染 `[]`
+
+#### Scenario: change 级 pin 优先于项目默认
+- **WHEN** 查询失败，`openspec/changes/demo/.openspec.yaml` 含 `schema: spec-driven`，而 `openspec/config.yaml` 含 `schema: superpowers-bridge-cn`
+- **THEN** 状态条 schema 段为 `(spec-driven)`
+
+#### Scenario: schema 无处可读
+- **WHEN** 查询失败且两份 YAML 均不存在或不含 `schema:`
+- **THEN** 状态条 schema 段渲染为 `(?)`，artifact token 仍为 `[P– D– S– T–]`
+
+#### Scenario: CLI 漏报某个槽位
+- **WHEN** `openspec status` 正常返回，但 artifacts 中缺少 `design`
+- **THEN** 状态条显示 `[P? D– S? T?]`（`?` 为返回的真实状态），槽位不缺失、列不错位
+
+#### Scenario: 查询成功时按返回状态渲染
+- **WHEN** `openspec status` 正常返回四个 artifacts
+- **THEN** 扩展 MUST 使用返回的真实状态渲染 `●` / `○`，MUST NOT 使用 `–`
 
 ### Requirement: worktree 自动检测与 cwd 解析
 
@@ -117,13 +150,13 @@ TBD - created by archiving change add-pi-tui-openspec-status. Update Purpose aft
 
 ### Requirement: 错误处理与无副作用
 
-扩展 MUST 将所有 openspec CLI 调用、文件读取、命令解析包裹在 try/catch 中；当 openspec CLI 缺失、命令无法解析、CLI 返回非零退出码、或 tasks.md 解析失败时，扩展 MUST 保留上一次状态（或空）并继续运行，**不得**抛错、**不得**弹窗、**不得**修改 session 内容或 LLM 上下文。
+扩展 MUST 将所有 openspec CLI 调用、文件读取、命令解析包裹在 try/catch 中；任何失败（CLI 缺失、命令无法解析、退出码非零、tasks.md 解析失败）MUST NOT 抛错、MUST NOT 弹窗、MUST NOT 修改 session 内容或 LLM 上下文。查询类失败 MUST 按「降级渲染：查询失败时不虚构状态」渲染；无法提取 change 名时 MUST 保留上一次状态。
 
 > 注：本条仅适用于 `ctx.mode === "tui"` 的激活场景；非 TUI 模式下扩展根本不注册处理器，因此本条不触发。
 
 #### Scenario: openspec CLI 缺失
-- **WHEN** PATH 中找不到 `openspec` 可执行文件
-- **THEN** 状态条保持空，扩展不抛错、不阻塞其它工具调用
+- **WHEN** PATH 中找不到 `openspec` 可执行文件（或 bundled binary 不可 spawn）
+- **THEN** 扩展进入降级渲染：schema 从项目 YAML 读取（读不到则 `(?)`），artifact 段为 `[P– D– S– T–]`；不抛错、不阻塞其它工具调用
 
 #### Scenario: bash 命令解析失败
 - **WHEN** bash 命令为复杂 shell 片段且扩展无法可靠提取 change 名
