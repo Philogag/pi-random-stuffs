@@ -18,6 +18,9 @@ function spyTheme() {
   const theme = {
     bg: (c: string, t: string) => { calls.push(`bg:${c}`); return t; },
     fg: (_c: string, t: string) => t,
+    // buildNativeToolHeader 复刻原生标题时用 theme.bold(真实 pi Theme 恒提供)。
+    // 同样用不可见标记:可见宽度不变,不会干扰截断。
+    bold: (t: string) => t,
   } as never;
   return { theme, calls };
 }

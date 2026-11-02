@@ -365,13 +365,66 @@ export function bgFor(
 }
 
 /** 展开体默认实现:结果原文逐行着色,空文本 → 0 行。 */
-function expandedBodyFromText(
+export function buildExpandedBodyText(
   text: string,
   theme: Theme,
   bgFn: (line: string) => string,
 ): Component {
   if (text === "") return new Text("", 0, 0);
   return new BgMultilineText(text.split("\n").map((l) => theme.fg("toolOutput", l)).join("\n"), bgFn);
+}
+
+/**
+ * 复刻 pi 原生"无渲染器的工具"展开态标题(pi 内部 `formatToolCallWithArgs(..., expanded=true)`)。
+ *
+ * pi 的实现位于 `dist/core/tools/render-utils.js`,未从包根导出,`exports` 也不开放子路径,
+ * 因此只能按行为对齐重写:
+ *   行1:`theme.fg("toolTitle", theme.bold(name))`
+ *   随后每个参数一行:`  <key>: <value>`,整体套 `theme.fg("muted", ...)`;
+ *   值为字符串时原样(不 JSON 转义),否则 `JSON.stringify(v, null, 2)`;换行续行缩 4 格;
+ *   tab 换成 3 空格,`\r` 剔除。
+ *
+ * 用于本包自绘的展开体:openspec 等无原生渲染器的工具,展开形态应与 pi 原生 fallback 一致
+ * (`tool-execution.js` 的 `createCallFallback`)。
+ */
+export function buildNativeToolHeader(name: string, args: unknown, theme: Theme): Component {
+  const header = theme.fg("toolTitle", theme.bold(name));
+  if (args === null || args === undefined) return new Text(header, 0, 0);
+  const entries: [string, unknown][] =
+    typeof args === "object" && !Array.isArray(args)
+      ? Object.entries(args as Record<string, unknown>)
+      : [["args", args]];
+  if (entries.length === 0) return new Text(header, 0, 0);
+  const lines = entries.map(([key, value]) => {
+    const text = typeof value === "string" ? value : (JSON.stringify(value, null, 2) ?? String(value));
+    const sanitized = text.replace(/\t/g, "   ").replace(/\r/g, "").split("\n").join("\n    ");
+    return `  ${key}: ${sanitized}`;
+  });
+  return new Text(`${header}\n${theme.fg("muted", lines.join("\n"))}`, 0, 0);
+}
+
+/**
+ * 自绘展开体的单盒:可选标题组件 + 展开体,整块共用一个自带背景的盒壳。
+ *
+ * 供两条路径复用:
+ *  - 外部扩展块(renderOwnedBlock 的 `ctx.expanded === true` 分支):header = 折叠摘要行;
+ *  - 本包内置的 openspec 覆盖:该工具没有原生渲染器可委托(pi-openspec-bridge 只
+ *    registerTool,不提供 renderCall/renderResult),展开态只能自绘(见 openspec.ts)。
+ *
+ * header 为 undefined 时只输出 body;paddingX 对应原生 Box 的 outputPad,纵向固定 1
+ * (buildBoxedBlock 约定)。整体结构与 pi 原生 fallback 同构:call 头与 result 体同住一个盒。
+ */
+export function buildSelfExpandedBlock(
+  header: Component | undefined,
+  body: Component,
+  bgFn: (line: string) => string,
+  paddingX = 1,
+): Component {
+  if (!header) return buildBoxedBlock(body, bgFn, paddingX);
+  const stack = new Container();
+  stack.addChild(header);
+  stack.addChild(body);
+  return buildBoxedBlock(stack, bgFn, paddingX);
 }
 
 export function renderBlock(ctx: ToolRenderContext, opts: RenderBlockOpts): Component {
@@ -430,17 +483,7 @@ export function renderOwnedBlock(
 
   // 展开态:折叠摘要行作头部(若有内容) + 展开体,整块共用一个自绘盒壳。
   // 外部扩展(无权威原生渲染器可委托)走这里;内置四工具在 overrides.ts 直接委托原生渲染器。
-  const body = opts.expandedBody?.(ctx, opts) ?? expandedBodyFromText(contentText(opts.result), opts.theme, bgFn);
+  const body = opts.expandedBody?.(ctx, opts) ?? buildExpandedBodyText(contentText(opts.result), opts.theme, bgFn);
   const header = line.tool || line.shown ? buildLineRow(line, bgFn) : undefined;
-  let content: Component;
-  if (header) {
-    // pi-tui 的 Container 无构造函数参数,子组件用 addChild 挂载
-    const stack = new Container();
-    stack.addChild(header);
-    stack.addChild(body);
-    content = stack;
-  } else {
-    content = body;
-  }
-  return buildBoxedBlock(content, bgFn, ctx.outputPad ?? 1);
+  return buildSelfExpandedBlock(header, body, bgFn, ctx.outputPad ?? 1);
 }

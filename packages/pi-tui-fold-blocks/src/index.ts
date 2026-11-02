@@ -5,19 +5,24 @@ import { createModeState } from "./mode.js";
 import { registerOverrides } from "./overrides.js";
 import { openSettings } from "./settings.js";
 import { markFoldBlocksActive, publishConfig, getFoldConfig, subscribeFoldConfig, isFoldBlocksActive, subscribeFoldBlocksActive } from "./compat.js";
-import { renderOwnedBlock, buildBlockComponent, buildBoxedBlock, contentLineCount, contentExitCode, contentText, type LineContext, type RenderBlockOpts } from "./render.js";
+import { renderOwnedBlock, buildBlockComponent, buildBoxedBlock, buildExpandedBodyText, buildNativeToolHeader, buildSelfExpandedBlock, bgFor, contentLineCount, contentExitCode, contentText, type LineContext, type RenderBlockOpts } from "./render.js";
 import { foldCommand, type FoldCommandOpts } from "./folders/command.js";
 import type { ToolRenderContext } from "./overrides.js";
 import { openspecShown, openspecStatusText, buildOpenspecBlockText, openspecRenderers, registerOpenspecRenderer, type OpenspecArgs } from "./openspec.js";
 
 // 兼容导出面(供其他扩展复用折叠渲染能力)。类型/常量/函数逐一来自其定义模块:
 //   renderOwnedBlock/LineContext/RenderBlockOpts/render.ts;buildBlockComponent/buildBoxedBlock/contentLineCount/contentExitCode/contentText 同;
+//   buildSelfExpandedBlock/buildNativeToolHeader/buildExpandedBodyText/bgFor 同(自绘展开单盒的复用件,供无原生渲染器的工具对齐 pi fallback);
 //   foldCommand(+FoldCommandOpts) 在 folders/command.ts;FoldBlocksConfig 在 config.ts;
 //   ToolRenderContext 在 overrides.ts;激活/配置单例在 compat.ts。
 export {
   renderOwnedBlock,
   buildBlockComponent,
   buildBoxedBlock,
+  buildSelfExpandedBlock,
+  buildNativeToolHeader,
+  buildExpandedBodyText,
+  bgFor,
   contentLineCount,
   contentExitCode,
   contentText,

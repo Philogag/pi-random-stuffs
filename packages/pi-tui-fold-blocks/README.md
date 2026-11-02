@@ -26,7 +26,7 @@ pi install npm:@philogag/pi-tui-fold-blocks
 - **路径样式可选**:`relative` / `absolute` / `basename`;git worktree 路径自动折叠
 - **nerd font 图标**:默认开启,可关闭(兼容无 nerd font 字体的终端)
 - **单击展开**:`fold` 模式下单击任一块即可展开该块单独查看(再单击收起),不影响其它块
-- **openspec 工具折叠**:由 `pi-openspec-bridge` 注册的 `openspec` 工具在 `fold` 模式折叠为单行 `openspec - <subcommand> <args...> [--change X]` + 右状态(`SUCCESS` / `FAILED[n]`);单击展开 / `native` 模式委托原生渲染
+- **openspec 工具折叠**:由 `pi-openspec-bridge` 注册的 `openspec` 工具在 `fold` 模式折叠为单行 `openspec - <subcommand> <args...> [--change X]` + 右状态(`SUCCESS` / `FAILED[n]`);单击展开为 pi 原生观感的展开形态(工具名 + 参数逐行 + 完整输出;底层有原生渲染器时直接委托),`native` 模式委托原生渲染
 - **非侵入**:`execute` 原样委托给内置工具,不改变任何行为
 
 ## 使用
@@ -75,7 +75,11 @@ pi install npm:@philogag/pi-tui-fold-blocks
 `openspec` 工具由独立的 `pi-openspec-bridge` 扩展注册(`name: "openspec"`,未设渲染器 → pi 默认整块渲染)。本包另走登记 `pi.registerToolRenderer` 的按工具名 resolver:**只在 `toolName === "openspec"` 时返回自绘折叠渲染器,其余委托 `next()` 保持链路**。它不重建定义、不动 `execute`,因此不影响 openspec 工具的 session 记录与 LLM 上下文。
 
 - 折叠行内容只读 openspec 参数文档化的 `subcommand` / `args` / `change` 三个字段,不 import `pi-openspec-bridge`,零包间耦合。
-- 遵循全局三态:`native` → 委托原生渲染;`hide` → 不渲染;`fold` 折叠单行,单击展开为原生完整输出(再单击收起)。
+- 遵循全局三态:`native` → 委托原生渲染;`hide` → 不渲染;`fold` 折叠单行,单击展开(再单击收起)。
+- **展开态的双路径**:`pi-openspec-bridge` 只用 `registerTool` 注册、不带 `renderCall`/`renderResult`,因此"委托原生"拿到的是空组件(历史 bug:展开后只剩一条空行)。实现据此分流:
+  - `next()` 返回的定义带渲染器 → 委托 `renderExpandedFold`(原生 call 头 + 原生 result 体,装进单盒);
+  - 不带渲染器 → 自绘单盒复刻 pi 原生 fallback(`tool-execution.js` 的 `createCallFallback` + `createResultFallback`):标题 `openspec` + 逐行 `  key: value`,后接结果全量原文(不截断、不只看前 10 行)。`native` 模式在同一种情形下也走此兜底,避免整块消失。
+- 展开态**不**显示折叠摘要行(`openspec - …` + `SUCCESS`):那是折叠态形态(对应 spec 的"展开显示完整输出 / 不再显示折叠摘要行"场景)。
 - 未安装 `pi-openspec-bridge` 时 resolver 对任何工具返回 `next()`,无副作用。
 
 ## 面向其他扩展的库面
@@ -143,6 +147,26 @@ renderOwnedBlock(ctx, {
 ```
 
 `expandedBody` 返回 `undefined` 时回退到原文(空结果 → 0 行)。不要自己再套背景盒:外层已用 `buildBoxedBlock` 给了背景与 padding。
+
+### 自绘展开体的复用件
+
+当目标工具**没有**原生渲染器可委托(如 `pi-openspec-bridge` 只 `registerTool`)时,用下列导出按 pi 原生 fallback 的形态自己拼一个展开单盒:
+
+```ts
+import { buildSelfExpandedBlock, buildNativeToolHeader, buildExpandedBodyText, bgFor } from "@philogag/pi-tui-fold-blocks";
+
+const bgFn = bgFor("result", ctx.isError, theme);
+return buildSelfExpandedBlock(
+  buildNativeToolHeader("openspec", ctx.args, theme),   // `openspec` + 逐行 `  key: value`
+  buildExpandedBodyText(contentText(result), theme, bgFn), // 结果全量原文(toolOutput 着色)
+  bgFn,
+  ctx.outputPad ?? 1,
+);
+```
+
+- `buildNativeToolHeader(name, args, theme)`:复刻 pi 内部 `formatToolCallWithArgs(..., expanded=true)`(该函数未从 SDK 包根导出,只能行为对齐):标题 `theme.fg("toolTitle", theme.bold(name))`,其后每参数一行 `  key: value` 整体套 `muted`;字符串原样、其余 `JSON.stringify(v, null, 2)`,续行缩 4 格、tab → 3 空格。
+- `buildSelfExpandedBlock(header?, body, bgFn, paddingX?)`:把可选标题组件 + 展开体装进**同一个**自带背景的盒(对应原生 `Box(1,1,bg)` + `outputPad`),与 pi 原生 fallback(``createCallFallback`` 与 ``createResultFallback`` 同住 contentBox)同构。
+- 判断能否委托原生:看 `next()` 返回的定义上是否真的存在 `renderCall`/`renderResult` 函数——只检查“定义存在”会得到空组件(展开后变一条空行)。
 
 ### 稳定性声明
 
