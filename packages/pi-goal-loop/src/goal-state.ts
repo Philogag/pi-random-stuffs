@@ -1,67 +1,79 @@
 import { buildContinuationPrompt } from "./prompts.js";
-export const MIN_SLEEP_SECONDS = 1;
-export const MAX_SLEEP_SECONDS = 900;
-export const DEFAULT_SLEEP_SECONDS = 60;
-export const MAX_SLEEP_MS = MAX_SLEEP_SECONDS * 1000;
 
-export interface TimerHandle {
-  readonly id: unknown;
-}
+/**
+ * Tools that block the current turn on an external actor (a human or a
+ * background job). They never settle while blocked, so they only need in-flight
+ * tracking: once the call returns, the turn continues with the answer/result.
+ */
+export const BLOCKING_WAIT_TOOLS: ReadonlySet<string> = new Set([
+  "ask_user_question", // @juicesharp/rpiv-ask-user-question
+  "bg_wait", // pi-subagents
+  "acp_delegate_wait",
+]);
 
-export interface Scheduler {
-  schedule(delayMs: number, cb: () => void): TimerHandle;
-  cancel(handle: TimerHandle): void;
-}
+/**
+ * Tools that hand work to a future native wake-up and return immediately. The
+ * turn settles right after dispatching, so these latch the wait state until an
+ * external event (completion wake, user input, goal lifecycle command) releases it.
+ */
+export const ASYNC_DISPATCH_TOOLS: ReadonlySet<string> = new Set(["subagent", "acp_delegate"]);
 
-export const systemScheduler: Scheduler = {
-  schedule(delayMs, cb) {
-    return { id: setTimeout(cb, delayMs) };
-  },
-  cancel(handle) {
-    clearTimeout(handle.id as ReturnType<typeof setTimeout>);
-  },
-};
+/** Emitted by @juicesharp/rpiv-ask-user-question while a questionnaire awaits input. */
+export const ASK_BLOCKED_EVENT = "rpiv:ask-user:blocked";
 
-export interface SleepState {
-  startedAt: number;
-  until: number;
-  seconds: number;
-  timer: TimerHandle | null;
-  suppressNextSettle: boolean;
-  settlesDuringSleep: number;
-}
+export type WaitKind = "blocking" | "dispatch";
 
-export interface GoalStateDeps {
-  scheduler: Scheduler;
-  /** Called when the sleep timer decides the loop should be woken. */
-  wake: () => void;
+export interface WaitState {
+  /** Tool name that first put the loop into the waiting posture. */
+  source: string;
+  since: number;
+  /** Tool call ids (or tool names) that are still running right now. */
+  inFlight: Set<string>;
+  /** True once work was handed to a native wake-up that has not arrived yet. */
+  latched: boolean;
 }
 
 export interface GoalState {
   goal: string | null;
-  sleep: SleepState | null;
-  readonly deps: GoalStateDeps;
+  wait: WaitState | null;
 }
 
 export type BoundaryOutcome = "completed" | "aborted" | "error";
 
 export type BoundaryAction = { kind: "none" } | { kind: "continue"; prompt: string };
 
-export function createGoalState(deps: GoalStateDeps): GoalState {
-  return { goal: null, sleep: null, deps };
+export interface WaitObservation {
+  source: string;
+  kind: WaitKind;
+  /** Absent for observations that cannot name a call (e.g. an anonymous blocked event). */
+  toolCallId?: string;
+  now?: number;
+}
+
+export function createGoalState(): GoalState {
+  return { goal: null, wait: null };
 }
 
 export function getGoal(state: GoalState): string | null {
   return state.goal;
 }
 
+export function getWait(state: GoalState): WaitState | null {
+  return state.wait;
+}
+
+export function isWaiting(state: GoalState): boolean {
+  const wait = state.wait;
+  return wait !== null && (wait.latched || wait.inFlight.size > 0);
+}
+
 export function startGoal(state: GoalState, text: string): void {
-  clearSleep(state);
+  releaseWait(state);
   state.goal = text;
 }
 
 export function clearGoal(state: GoalState): void {
-  clearSleep(state);
+  releaseWait(state);
   state.goal = null;
 }
 
@@ -73,74 +85,56 @@ export function finishGoal(state: GoalState): void {
   clearGoal(state);
 }
 
-export function clearSleep(state: GoalState): void {
-  const sleep = state.sleep;
-  if (sleep === null) return;
-  state.sleep = null;
-  if (sleep.timer !== null) state.deps.scheduler.cancel(sleep.timer);
+/** Idempotent: releasing twice (or without any wait state) never throws. */
+export function releaseWait(state: GoalState): void {
+  state.wait = null;
 }
 
-export function clampSleepSeconds(seconds: number): number {
-  if (!Number.isFinite(seconds)) return MIN_SLEEP_SECONDS;
-  return Math.min(MAX_SLEEP_SECONDS, Math.max(MIN_SLEEP_SECONDS, Math.floor(seconds)));
-}
-
-export function beginSleep(state: GoalState, seconds: number, now: number): SleepState | null {
-  if (state.goal === null) return null;
-  clearSleep(state);
-
-  const clamped = clampSleepSeconds(seconds);
-  const delayMs = clamped * 1000;
-  const sleep: SleepState = {
-    startedAt: now,
-    until: now + delayMs,
-    seconds: clamped,
-    timer: null,
-    suppressNextSettle: true,
-    settlesDuringSleep: 0,
+export function enterWait(state: GoalState, observation: WaitObservation): WaitState {
+  const now = observation.now ?? Date.now();
+  const wait: WaitState = state.wait ?? {
+    source: observation.source,
+    since: now,
+    inFlight: new Set<string>(),
+    latched: false,
   };
+  state.wait = wait;
 
-  sleep.timer = state.deps.scheduler.schedule(delayMs, () => {
-    if (onTimer(state, sleep) === "wake") state.deps.wake();
-  });
-
-  state.sleep = sleep;
-  return sleep;
+  if (observation.kind === "dispatch") wait.latched = true;
+  wait.inFlight.add(observation.toolCallId ?? observation.source);
+  return wait;
 }
 
-export function onTimer(state: GoalState, sleep: SleepState): "wake" | "none" {
-  if (state.sleep !== sleep) return "none";
-  const shouldWake = state.goal !== null && sleep.settlesDuringSleep === 0;
-  clearSleep(state);
-  return shouldWake ? "wake" : "none";
+/** Drops one in-flight call. The latch (if any) is untouched: it waits for an external event. */
+export function endWaitCall(state: GoalState, toolCallId: string | undefined): void {
+  const wait = state.wait;
+  if (wait === null) return;
+  if (toolCallId === undefined) wait.inFlight.clear();
+  else wait.inFlight.delete(toolCallId);
+}
+
+/**
+ * Decides whether a tool call is a wait source. Management calls
+ * (`subagent({ action: "status" })`) and synchronous dispatches (`async: false`)
+ * are not: the callee returns its result in this turn.
+ */
+export function classifyToolCall(toolName: string, args: unknown): WaitKind | null {
+  if (BLOCKING_WAIT_TOOLS.has(toolName)) return "blocking";
+  if (!ASYNC_DISPATCH_TOOLS.has(toolName)) return null;
+  const params = (args ?? {}) as { action?: unknown; async?: unknown };
+  if (params.action !== undefined && params.action !== null) return null;
+  if (params.async === false) return null;
+  return "dispatch";
 }
 
 export function onShutdown(state: GoalState): void {
-  clearSleep(state);
+  releaseWait(state);
 }
 
-export function onBoundary(
-  state: GoalState,
-  outcome: BoundaryOutcome,
-  now: number,
-): BoundaryAction {
+export function onBoundary(state: GoalState, outcome: BoundaryOutcome): BoundaryAction {
   const goal = state.goal;
   if (goal === null) return { kind: "none" };
   if (outcome !== "completed") return { kind: "none" };
-
-  const sleep = state.sleep;
-  if (sleep !== null && now - sleep.startedAt > MAX_SLEEP_MS) {
-    clearSleep(state);
-    return { kind: "continue", prompt: buildContinuationPrompt(goal) };
-  }
-  if (sleep !== null) {
-    if (sleep.suppressNextSettle) {
-      sleep.suppressNextSettle = false;
-      return { kind: "none" };
-    }
-    sleep.settlesDuringSleep += 1;
-    return { kind: "none" };
-  }
-
+  if (isWaiting(state)) return { kind: "none" };
   return { kind: "continue", prompt: buildContinuationPrompt(goal) };
 }

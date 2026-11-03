@@ -1,67 +1,58 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  MAX_SLEEP_MS,
-  beginSleep,
-  clampSleepSeconds,
-  clearSleep,
+  classifyToolCall,
   createGoalState,
+  endWaitCall,
+  enterWait,
   finishGoal,
   getGoal,
-  onShutdown,
+  getWait,
+  isWaiting,
   onBoundary,
-  onTimer,
+  onShutdown,
+  releaseWait,
   startGoal,
   stopGoal,
-  systemScheduler,
-  type GoalStateDeps,
 } from "../src/goal-state.js";
 import { buildContinuationPrompt } from "../src/prompts.js";
 
-function makeState(wake: () => void = () => {}): {
-  state: ReturnType<typeof createGoalState>;
-  wake: ReturnType<typeof vi.fn>;
-} {
-  const wakeSpy = vi.fn(wake);
-  const deps: GoalStateDeps = { scheduler: systemScheduler, wake: wakeSpy };
-  return { state: createGoalState(deps), wake: wakeSpy };
-}
-
 describe("goal lifecycle", () => {
-  it("starts with no goal", () => {
-    const { state } = makeState();
+  it("starts with no goal and no wait", () => {
+    const state = createGoalState();
     expect(getGoal(state)).toBeNull();
-    expect(state.sleep).toBeNull();
+    expect(getWait(state)).toBeNull();
+    expect(isWaiting(state)).toBe(false);
   });
 
   it("startGoal registers the goal text", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "重构 X 模块");
     expect(getGoal(state)).toBe("重构 X 模块");
   });
 
   it("startGoal replaces an existing goal", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "旧目标");
     startGoal(state, "新目标");
     expect(getGoal(state)).toBe("新目标");
   });
 
   it("stopGoal clears the goal", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "某个目标");
     stopGoal(state);
     expect(getGoal(state)).toBeNull();
   });
 
   it("finishGoal clears the goal", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "某个目标");
     finishGoal(state);
     expect(getGoal(state)).toBeNull();
   });
 
   it("stopGoal and finishGoal are idempotent without a goal", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     expect(() => {
       stopGoal(state);
       finishGoal(state);
@@ -69,218 +60,198 @@ describe("goal lifecycle", () => {
   });
 });
 
-describe("goal_sleep scheduling", () => {
-  it("clamps out-of-range durations", () => {
-    expect(clampSleepSeconds(0)).toBe(1);
-    expect(clampSleepSeconds(-5)).toBe(1);
-    expect(clampSleepSeconds(1)).toBe(1);
-    expect(clampSleepSeconds(60)).toBe(60);
-    expect(clampSleepSeconds(900)).toBe(900);
-    expect(clampSleepSeconds(100000)).toBe(900);
-    expect(clampSleepSeconds(Number.NaN)).toBe(1);
+describe("wait state", () => {
+  it("tracks a blocking call while it is in flight", () => {
+    const state = createGoalState();
+    enterWait(state, { source: "bg_wait", kind: "blocking", toolCallId: "w1", now: 1_000 });
+
+    expect(isWaiting(state)).toBe(true);
+    expect(getWait(state)?.source).toBe("bg_wait");
+    expect(getWait(state)?.since).toBe(1_000);
+    expect(getWait(state)?.latched).toBe(false);
+    expect([...(getWait(state)?.inFlight ?? [])]).toEqual(["w1"]);
   });
 
-  it("refuses to sleep without an active goal", () => {
-    const { state } = makeState();
-    expect(beginSleep(state, 60, 1_000)).toBeNull();
-    expect(state.sleep).toBeNull();
+  it("stops waiting once the blocking call ends", () => {
+    const state = createGoalState();
+    enterWait(state, { source: "bg_wait", kind: "blocking", toolCallId: "w1" });
+    endWaitCall(state, "w1");
+    expect(isWaiting(state)).toBe(false);
   });
 
-  it("registers a sleep state with the requested delay", () => {
-    const { state } = makeState();
+  it("keeps the latch after a dispatch call ends", () => {
+    const state = createGoalState();
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s1" });
+    endWaitCall(state, "s1");
+
+    expect(getWait(state)?.latched).toBe(true);
+    expect(isWaiting(state)).toBe(true);
+  });
+
+  it("re-uses one wait record for several sources", () => {
+    const state = createGoalState();
+    enterWait(state, { source: "ask_user_question", kind: "blocking", toolCallId: "ask-1", now: 5 });
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s1", now: 9 });
+
+    expect(getWait(state)?.source).toBe("ask_user_question");
+    expect(getWait(state)?.since).toBe(5);
+    expect(getWait(state)?.latched).toBe(true);
+    expect([...(getWait(state)?.inFlight ?? [])].sort()).toEqual(["ask-1", "s1"]);
+  });
+
+  it("uses the source name when the observation has no call id", () => {
+    const state = createGoalState();
+    enterWait(state, { source: "ask_user_question", kind: "blocking" });
+
+    expect([...(getWait(state)?.inFlight ?? [])]).toEqual(["ask_user_question"]);
+    endWaitCall(state, undefined);
+    expect(isWaiting(state)).toBe(false);
+  });
+
+  it("ignores an end for an unknown call", () => {
+    const state = createGoalState();
+    expect(() => endWaitCall(state, "nope")).not.toThrow();
+
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s1" });
+    endWaitCall(state, "other");
+    expect(isWaiting(state)).toBe(true);
+  });
+
+  it("releaseWait is idempotent and clears the latch", () => {
+    const state = createGoalState();
+    expect(() => releaseWait(state)).not.toThrow();
+
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s1" });
+    releaseWait(state);
+    expect(isWaiting(state)).toBe(false);
+    expect(() => releaseWait(state)).not.toThrow();
+  });
+
+  it("start/stop/finish/shutdown clear the wait state", () => {
+    const state = createGoalState();
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s1" });
     startGoal(state, "目标 A");
-    const sleep = beginSleep(state, 60, 1_000);
-    expect(sleep).not.toBeNull();
-    expect(state.sleep).toBe(sleep);
-    expect(sleep?.startedAt).toBe(1_000);
-    expect(sleep?.until).toBe(1_000 + 60_000);
-    expect(sleep?.seconds).toBe(60);
-    expect(sleep?.suppressNextSettle).toBe(true);
-    expect(sleep?.settlesDuringSleep).toBe(0);
-  });
+    expect(isWaiting(state)).toBe(false);
 
-  it("cancels the previous timer when sleeping again", () => {
-    const cancel = vi.fn();
-    const state = createGoalState({
-      scheduler: { schedule: () => ({ id: 1 }), cancel },
-      wake: () => {},
-    });
-    startGoal(state, "目标 A");
-    const first = beginSleep(state, 60, 1_000);
-    beginSleep(state, 30, 2_000);
-    expect(cancel).toHaveBeenCalledTimes(1);
-    expect(cancel).toHaveBeenCalledWith(first?.timer);
-  });
-
-  it("clears sleep when the goal is replaced or ended", () => {
-    const cancel = vi.fn();
-    const state = createGoalState({
-      scheduler: { schedule: () => ({ id: 1 }), cancel },
-      wake: () => {},
-    });
-    startGoal(state, "目标 A");
-    beginSleep(state, 60, 1_000);
-    startGoal(state, "目标 B");
-    expect(state.sleep).toBeNull();
-    beginSleep(state, 60, 2_000);
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s2" });
     stopGoal(state);
-    expect(state.sleep).toBeNull();
-    expect(cancel).toHaveBeenCalledTimes(2);
-  });
+    expect(isWaiting(state)).toBe(false);
 
-  it("ignores a stale timer callback", () => {
-    const { state } = makeState();
-    startGoal(state, "目标 A");
-    const stale = beginSleep(state, 60, 1_000);
-    clearSleep(state);
-    expect(stale).not.toBeNull();
-    expect(onTimer(state, stale!)).toBe("none");
-  });
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s3" });
+    finishGoal(state);
+    expect(isWaiting(state)).toBe(false);
 
-  it("onShutdown is idempotent and cancels the timer", () => {
-    const cancel = vi.fn();
-    const state = createGoalState({
-      scheduler: { schedule: () => ({ id: 1 }), cancel },
-      wake: () => {},
-    });
-    startGoal(state, "目标 A");
-    beginSleep(state, 60, 1_000);
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s4" });
     onShutdown(state);
-    expect(state.sleep).toBeNull();
+    expect(isWaiting(state)).toBe(false);
     expect(() => onShutdown(state)).not.toThrow();
-    expect(cancel).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("onBoundary guard", () => {
+describe("classifyToolCall", () => {
+  it("recognises blocking wait tools", () => {
+    expect(classifyToolCall("ask_user_question", {})).toBe("blocking");
+    expect(classifyToolCall("bg_wait", { id: "run-1" })).toBe("blocking");
+    expect(classifyToolCall("acp_delegate_wait", {})).toBe("blocking");
+  });
+
+  it("recognises async dispatches", () => {
+    expect(classifyToolCall("subagent", { agent: "worker", task: "x" })).toBe("dispatch");
+    expect(classifyToolCall("subagent", { agent: "worker", task: "x", async: true })).toBe("dispatch");
+    expect(classifyToolCall("acp_delegate", { agent: "reviewer", task: "x" })).toBe("dispatch");
+  });
+
+  it("ignores management and synchronous calls", () => {
+    expect(classifyToolCall("subagent", { action: "status", id: "run-1" })).toBeNull();
+    expect(classifyToolCall("subagent", { agent: "worker", task: "x", async: false })).toBeNull();
+    expect(classifyToolCall("acp_delegate", { action: "cancel", id: "run-1" })).toBeNull();
+  });
+
+  it("ignores unrelated tools", () => {
+    expect(classifyToolCall("read", { path: "a.ts" })).toBeNull();
+    expect(classifyToolCall("goal_finish", {})).toBeNull();
+  });
+});
+
+describe("onBoundary", () => {
   it("does nothing without an active goal", () => {
-    const { state } = makeState();
-    expect(onBoundary(state, "completed", 1_000)).toEqual({ kind: "none" });
+    const state = createGoalState();
+    expect(onBoundary(state, "completed")).toEqual({ kind: "none" });
   });
 
   it("continues on a completed turn when a goal is active", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "重构 X 模块");
-    expect(onBoundary(state, "completed", 1_000)).toEqual({
+    expect(onBoundary(state, "completed")).toEqual({
       kind: "continue",
       prompt: buildContinuationPrompt("重构 X 模块"),
     });
   });
 
   it("pauses on aborted and keeps the goal", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "重构 X 模块");
-    expect(onBoundary(state, "aborted", 1_000)).toEqual({ kind: "none" });
+    expect(onBoundary(state, "aborted")).toEqual({ kind: "none" });
     expect(getGoal(state)).toBe("重构 X 模块");
   });
 
   it("pauses on error and keeps the goal", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "重构 X 模块");
-    expect(onBoundary(state, "error", 1_000)).toEqual({ kind: "none" });
+    expect(onBoundary(state, "error")).toEqual({ kind: "none" });
     expect(getGoal(state)).toBe("重构 X 模块");
   });
 
   it("resumes continuing after the pause", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "重构 X 模块");
-    expect(onBoundary(state, "aborted", 1_000).kind).toBe("none");
-    expect(onBoundary(state, "completed", 2_000).kind).toBe("continue");
+    expect(onBoundary(state, "aborted").kind).toBe("none");
+    expect(onBoundary(state, "completed").kind).toBe("continue");
   });
 
   it("does not clear the goal on aborted or error", () => {
-    const { state } = makeState();
+    const state = createGoalState();
     startGoal(state, "重构 X 模块");
-    onBoundary(state, "aborted", 1_000);
-    onBoundary(state, "error", 2_000);
+    onBoundary(state, "aborted");
+    onBoundary(state, "error");
     expect(getGoal(state)).toBe("重构 X 模块");
   });
-});
 
-describe("sleep suppression and timer wake-up", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  it("suppresses while a blocking wait is in flight", () => {
+    const state = createGoalState();
+    startGoal(state, "重构 X 模块");
+    enterWait(state, { source: "ask_user_question", kind: "blocking", toolCallId: "ask-1" });
 
-  it("suppresses exactly the first completed settle", () => {
-    const { state, wake } = makeState();
-    startGoal(state, "目标 A");
-    const sleep = beginSleep(state, 60, 1_000)!;
-
-    expect(onBoundary(state, "completed", 1_100)).toEqual({ kind: "none" });
-    expect(sleep.suppressNextSettle).toBe(false);
-    expect(sleep.settlesDuringSleep).toBe(0);
-
-    expect(onBoundary(state, "completed", 1_200)).toEqual({ kind: "none" });
-    expect(sleep.settlesDuringSleep).toBe(1);
-    expect(wake).not.toHaveBeenCalled();
+    expect(onBoundary(state, "completed")).toEqual({ kind: "none" });
+    expect(getGoal(state)).toBe("重构 X 模块");
   });
 
-  it("does not count non-completed outcomes during sleep", () => {
-    const { state } = makeState();
-    startGoal(state, "目标 A");
-    const sleep = beginSleep(state, 60, 1_000)!;
-    onBoundary(state, "aborted", 1_100);
-    expect(sleep.suppressNextSettle).toBe(true);
-    expect(sleep.settlesDuringSleep).toBe(0);
+  it("suppresses every settle while the dispatch latch is set", () => {
+    const state = createGoalState();
+    startGoal(state, "重构 X 模块");
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s1" });
+    endWaitCall(state, "s1");
+
+    expect(onBoundary(state, "completed")).toEqual({ kind: "none" });
+    expect(onBoundary(state, "completed")).toEqual({ kind: "none" });
+    expect(isWaiting(state)).toBe(true);
   });
 
-  it("wakes at the timer when nothing resumed the loop", () => {
-    const { state, wake } = makeState();
-    startGoal(state, "目标 A");
-    beginSleep(state, 60, 1_000);
-    onBoundary(state, "completed", 1_100);
+  it("continues again once the latch is released", () => {
+    const state = createGoalState();
+    startGoal(state, "重构 X 模块");
+    enterWait(state, { source: "subagent", kind: "dispatch", toolCallId: "s1" });
+    releaseWait(state);
 
-    vi.advanceTimersByTime(60_000);
-
-    expect(wake).toHaveBeenCalledTimes(1);
-    expect(state.sleep).toBeNull();
+    expect(onBoundary(state, "completed").kind).toBe("continue");
   });
 
-  it("skips the wake-up when the loop was already resumed", () => {
-    const { state, wake } = makeState();
-    startGoal(state, "目标 A");
-    beginSleep(state, 60, 1_000);
-    onBoundary(state, "completed", 1_100);  // consumes the suppression
-    onBoundary(state, "completed", 20_000); // subagent wake-up already resumed the loop
+  it("continues after the blocking call returns", () => {
+    const state = createGoalState();
+    startGoal(state, "重构 X 模块");
+    enterWait(state, { source: "bg_wait", kind: "blocking", toolCallId: "w1" });
+    endWaitCall(state, "w1");
 
-    vi.advanceTimersByTime(60_000);
-
-    expect(wake).not.toHaveBeenCalled();
-    expect(state.sleep).toBeNull();
-  });
-
-  it("does not wake when the goal ended before the timer fired", () => {
-    const { state, wake } = makeState();
-    startGoal(state, "目标 A");
-    beginSleep(state, 60, 1_000);
-    stopGoal(state);
-
-    vi.advanceTimersByTime(60_000);
-
-    expect(wake).not.toHaveBeenCalled();
-  });
-
-  it("clears sleep and continues once the sleep has outlived MAX_SLEEP_MS", () => {
-    const { state } = makeState();
-    startGoal(state, "目标 A");
-    const sleep = beginSleep(state, 60, 1_000);
-    expect(sleep).not.toBeNull();
-
-    const late = 1_000 + MAX_SLEEP_MS + 1;
-    expect(onBoundary(state, "completed", late).kind).toBe("continue");
-    expect(state.sleep).toBeNull();
-  });
-
-  it("onTimer returns none for a stale reference", () => {
-    const { state } = makeState();
-    startGoal(state, "目标 A");
-    const first = beginSleep(state, 60, 1_000)!;
-    const second = beginSleep(state, 60, 2_000)!;
-    expect(second).not.toBe(first);
-    expect(onTimer(state, first)).toBe("none");
+    expect(onBoundary(state, "completed").kind).toBe("continue");
   });
 });

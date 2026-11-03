@@ -1,15 +1,18 @@
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-  beginSleep,
+  ASK_BLOCKED_EVENT,
+  classifyToolCall,
   createGoalState,
+  endWaitCall,
+  enterWait,
   finishGoal,
   getGoal,
   onBoundary,
   onShutdown,
+  releaseWait,
   startGoal,
   stopGoal,
-  systemScheduler,
   type GoalState,
 } from "./goal-state.js";
 import {
@@ -22,18 +25,15 @@ import {
   goalStatusNotice,
   goalStoppedNotice,
   noGoalNotice,
-  sleepFailure,
-  sleepScheduledNotice,
 } from "./prompts.js";
-
-const SleepParams = Type.Object({
-  seconds: Type.Number({
-    description: "How long to defer the next automatic goal continuation, in seconds (1-900).",
-  }),
-});
 
 function notify(ctx: ExtensionCommandContext | ExtensionContext, message: string): void {
   if (ctx.hasUI) ctx.ui.notify(message, "info");
+}
+
+interface AskBlockedPayload {
+  active?: boolean;
+  toolCallId?: string;
 }
 
 export default function goalLoop(pi: ExtensionAPI): void {
@@ -46,7 +46,7 @@ export default function goalLoop(pi: ExtensionAPI): void {
     );
   }
 
-  const state: GoalState = createGoalState({ scheduler: systemScheduler, wake: wakeNow });
+  const state: GoalState = createGoalState();
 
   pi.registerCommand("goal", {
     description: "Declare an active goal; pi keeps auto-continuing until goal_finish or /goal-stop",
@@ -90,31 +90,38 @@ export default function goalLoop(pi: ExtensionAPI): void {
     },
   });
 
-  pi.registerTool({
-    name: "goal_sleep",
-    label: "Goal Sleep",
-    description:
-      "Defer the next automatic goal continuation while waiting for asynchronous work (for example a subagent). The next settle is suppressed and a timer wakes the loop after the requested seconds. Fails when no goal is active.",
-    parameters: SleepParams,
-    execute: async (_toolCallId, params) => {
-      if (getGoal(state) === null) throw new Error(sleepFailure());
-      const now = Date.now();
-      const sleep = beginSleep(state, params.seconds, now);
-      if (sleep === null) throw new Error(sleepFailure());
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: sleepScheduledNotice(sleep.seconds, new Date(sleep.until).toISOString()),
-          },
-        ],
-        details: undefined,
-      };
-    },
+  // 等待感知：问卷阻塞（@juicesharp/rpiv-ask-user-question 的公开事件）
+  pi.events.on(ASK_BLOCKED_EVENT, (payload: unknown) => {
+    const data = (payload ?? {}) as AskBlockedPayload;
+    if (data.active === true) {
+      enterWait(state, { source: "ask_user_question", kind: "blocking", toolCallId: data.toolCallId });
+    } else {
+      endWaitCall(state, data.toolCallId);
+    }
+  });
+
+  // 等待感知：阻塞类工具在途 / 异步派发的 latch
+  pi.on("tool_execution_start", (event) => {
+    const kind = classifyToolCall(event.toolName, event.args);
+    if (kind === null) return;
+    enterWait(state, { source: event.toolName, kind, toolCallId: event.toolCallId });
+  });
+
+  pi.on("tool_execution_end", (event) => {
+    endWaitCall(state, event.toolCallId);
+  });
+
+  // 外部事件把控制权交回循环：新一轮开始（含子 agent 完成通知的 triggerTurn 唤醒）或用户发言
+  pi.on("agent_start", () => {
+    releaseWait(state);
+  });
+
+  pi.on("input", () => {
+    releaseWait(state);
   });
 
   pi.on("agent_before_settle", (event) => {
-    const action = onBoundary(state, event.outcome, Date.now());
+    const action = onBoundary(state, event.outcome);
     if (action.kind !== "continue") return undefined;
     return {
       entries: [

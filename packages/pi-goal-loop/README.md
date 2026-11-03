@@ -4,7 +4,9 @@ pi 扩展:给 agent 一个**持续目标**。
 
 一次 `/goal` 声明目标后,pi 会在每轮循环结束而目标仍未完成时**自动注入下一轮提示词**继续推进;若声明时会话**空闲**,还会**立刻开始第一轮**(见「空闲时立即启动」)。只有 agent 调用 `goal_finish` 或用户执行 `/goal-stop` 才会真正结束。适合「做完为止」的长任务,agent 中途收尾过早时由本扩展把它推回去。
 
-> 版本 **0.1.1** · 测试 **50 例** · 已验证宿主 **pi 1.1.0**(kickoff 复验)/ **pi 0.87.1**(端到端)· 最后更新 **2026-10-09**
+> 版本 **0.1.2** · 测试 **59 例** · 已验证宿主 **pi 1.1.0**(kickoff 复验)/ **pi 0.87.1**(端到端)· 最后更新 **2026-10-10**
+>
+> **0.1.2 起不再提供 `goal_sleep`**:循环会主动识别宿主侧的「等待态」(`ask_user_question` 问卷阻塞、`bg_wait` / `acp_delegate_wait` 等待中、异步派发在途),等待期间自动暂停续跑。
 
 ## 安装
 
@@ -21,7 +23,7 @@ pi install npm:@philogag/pi-goal-loop
 
 | 命令 | 作用 |
 | --- | --- |
-| `/goal <目标>` | 发起目标并**在空闲时立刻开始一轮**;已有目标时**替换**它(并重置延迟状态) |
+| `/goal <目标>` | 发起目标并**在空闲时立刻开始一轮**;已有目标时**替换**它(并清除等待态) |
 | `/goal` | 无参数:显示当前目标,并提示「仅存于内存」与 `/goal-stop` |
 | `/goal-stop` | 结束目标并停止自动续跑 |
 
@@ -32,7 +34,7 @@ pi install npm:@philogag/pi-goal-loop
 | 触发场景 | 行为 |
 | --- | --- |
 | 会话空闲,且当前无活动目标 | 注入目标 → **立即开始一轮** |
-| 会话空闲,但已有活动目标 | 替换目标 → **立即开始一轮**(延迟状态一并重置) |
+| 会话空闲,但已有活动目标 | 替换目标 → **立即开始一轮**(等待态一并清除) |
 | 正在跑一轮 / 子 agent 运行中 | 只记录目标,不插队;等本轮结束事件按既有规则续跑 |
 
 实现上由命令处理器在设置目标后判定 `ctx.isIdle()` 并调用 `wakeNow()`,宿主随即以 `triggerTurn: true` 注入一条 `goal-loop` custom message 驱动该轮。复验证据见下文「`/goal` kickoff 的复验记录」。
@@ -42,18 +44,25 @@ pi install npm:@philogag/pi-goal-loop
 | 工具 | 作用 |
 | --- | --- |
 | `goal_finish` | 声明目标**已达成**:结束目标、停止续跑。无活动目标时调用失败 |
-| `goal_sleep({ seconds })` | 推迟下一次自动续跑(例如正在等待异步 subagent)。`seconds` 必填,会被 clamp 到 `1–900`;无活动目标时调用失败 |
 
-这两个工具**不出现在系统提示词**里(`promptSnippet` / `promptGuidelines` 均未设置)。它们的用法只通过续跑提示词传达,因此不占用每轮固定上下文。
+这是本扩展**唯一**的 agent 侧工具,且**不出现在系统提示词**里(`promptSnippet` / `promptGuidelines` 均未设置)。它的用法只通过续跑提示词传达,因此不占用每轮固定上下文。
 
-### `goal_sleep` 的语义
+## 等待感知(0.1.2)
 
-用于「本轮结束但工作还没做完,等一会儿再叫我」:
+不再需要 agent 自己 `sleep` 或轮询:扩展监听宿主事件,识别三类「正在等外部输入」的情形,期间**不再注入续跑提示**。
 
-1. 调用后**第一个**循环结束事件被抑制一次(不计数)——此时通常异步工作已返回并推进了进度。
-2. 若之后仍发生循环结束事件(说明工作没推进),计数 +1,继续抑制。
-3. 定时器到点时:计数为 `0` → 注入续跑提示并**触发新一轮**(`triggerTurn`);计数 `> 0` → 跳过注入。
-4. 超时兜底:延迟状态若生效超过 `MAX_SLEEP_MS`(900s)仍未清除,下一次循环结束视作正常续跑并清除延迟状态。
+| 来源 | 触发 | 解除 |
+| --- | --- | --- |
+| `ask_user_question`(@juicesharp/rpiv-ask-user-question) | 事件总线 `rpiv:ask-user:blocked` 的 `{ active: true }` | 同一事件 `{ active: false }`,或 `tool_execution_end` |
+| 阻塞式等待工具 `bg_wait` / `acp_delegate_wait` | `tool_execution_start`(参数里带 id / runId) | `tool_execution_end` |
+| 异步派发 `subagent` / `acp_delegate` | `tool_execution_start`(默认 `async: true`) | 闩锁保持,直到**下一轮开始**(`agent_start`)或用户新输入(`input`) |
+
+语义要点:
+
+1. **阻塞类**是「在途」语义:工具还没返回就算在等,返回即恢复。ask 问卷的阻塞事件用 `active` 标志,同时用 `toolCallId` 关联,事件丢失时 `tool_execution_end` 仍能兜底。
+2. **异步派发**是「闩锁」语义:派发返回不等于工作完成,所以工具返回后仍保持等待;子 agent 完成会原生唤醒新一轮,该轮开始(`agent_start`)时闩锁自动解除,随后按常规续跑判定继续。
+3. **解除宁可提前不可滞后**:用户任意新输入、`/goal` 重新声明、`/goal-stop`、`goal_finish`、会话关闭都会清空等待态——最坏情况是多注入一轮提示(agent 会调用 `bg_wait` 等),而不是永久卡死。
+4. **不额外占上下文**:等待态完全靠事件驱动,不需要 agent 调用工具声明「我在等」。
 
 ## 停止出口(重点)
 
@@ -68,6 +77,8 @@ pi install npm:@philogag/pi-goal-loop
 
 - **活动目标仅存于内存**:`/reload`、重启 pi、或切换会话后目标丢失,需要重新 `/goal`。扩展刻意不把目标写入 session entry。
 - **自动续跑会持续消耗 token**:一个宽泛的目标可能循环很多轮。请用 `/goal-stop` 或让 agent 调用 `goal_finish` 及时收口。
+- **等待感知依赖宿主命名约定**:事件频道 `rpiv:ask-user:blocked` 由 `@juicesharp/rpiv-ask-user-question` 公开,工具名 `bg_wait` / `subagent`(pi-subagents)与 `acp_delegate_wait` / `acp_delegate` 也写在 `src/goal-state.ts` 的 `classifyToolCall` 里。这些名字变化时需要同步更新。
+- **缺失时是 fail-safe**:事件频道没人发、或工具被改名时,扩展不会卡死——退化为「不等,继续续跑」,最坏情况是多消耗几轮 token。
 
 ## 已验证的 pi 版本
 
@@ -82,11 +93,11 @@ pi install npm:@philogag/pi-goal-loop
 | 2 | 仍未收口 → 第二次 `entry_appended`(`goal-loop`) |
 | 3 | agent 调用 `goal_finish` → 目标清除,不再注入 → `agent_settled` 后进程正常退出(exit 0) |
 
-即:自动续跑与 `goal_finish` 收口均已通过真实 pi 会话验证;续跑提示词内容包含目标原文与两个 agent 出口 `goal_finish` / `goal_sleep`(面向用户的 `/goal-stop` 不在该提示词中)。
+即:自动续跑与 `goal_finish` 收口均已通过真实 pi 会话验证;续跑提示词内容包含目标原文与 agent 出口 `goal_finish`(面向用户的 `/goal-stop` 不在该提示词中;旧版提示词里的 `goal_sleep` 已在 0.1.2 删除)。
 
 ### `/goal` kickoff 的复验记录(2026-10-09)
 
-本次复验的宿主为 **pi 1.1.0**,扩展源码为已提交的 `src/index.ts`(当时 `src/prompts.ts` 的续跑提示词文案改动尚未提交,现也已包含在 `dd0b37d` 中;该改动只影响提示词文案,不涉及 kickoff 路径)。因本机已全局安装同名扩展(`~/.pi/agent/npm/node_modules/@philogag/pi-goal-loop/dist/index.js`),直接 `-e` 会因 `goal_finish` / `goal_sleep` 工具名冲突而无法加载,故加了 `-ne` 并显式加载 provider 扩展:
+本次复验的宿主为 **pi 1.1.0**,扩展源码为已提交的 `src/index.ts`(当时 `src/prompts.ts` 的续跑提示词文案改动尚未提交,现也已包含在 `dd0b37d` 中;该改动只影响提示词文案,不涉及 kickoff 路径)。因本机已全局安装同名扩展(`~/.pi/agent/npm/node_modules/@philogag/pi-goal-loop/dist/index.js`),直接 `-e` 会因 `goal_finish` 工具名冲突而无法加载,故加了 `-ne` 并显式加载 provider 扩展:
 
 ```bash
 pi -ne \
@@ -122,7 +133,7 @@ pi -ne \
 
 ```bash
 pnpm install                 # 安装依赖(弱依赖来自宿主 pi,devDeps 供本地构建)
-pnpm --filter @philogag/pi-goal-loop test        # 测试(50 例)
+pnpm --filter @philogag/pi-goal-loop test        # 测试(59 例)
 pnpm --filter @philogag/pi-goal-loop typecheck
 pnpm --filter @philogag/pi-goal-loop build       # 产出 dist/
 ```
@@ -143,7 +154,7 @@ pnpm --filter @philogag/pi-goal-loop build       # 产出 dist/
 
 ## 设计要点
 
-- **纯状态机与接线分离**:`src/goal-state.ts` 是不依赖 pi 的纯状态机(注入式定时器接口,便于用 fake timers 测试),`src/index.ts` 只做 pi 接线。
+- **纯状态机与接线分离**:`src/goal-state.ts` 是不依赖 pi 的纯状态机(时间戳与事件均注入,不内置定时器,便于用普通对象测试),`src/index.ts` 只做 pi 接线。
 - **唯一出口**:`finishGoal` / `stopGoal` 是清除目标的唯一两条路径;`aborted` / `error` 只影响本轮续跑判定。
-- **唤醒来源有三个**:用户 `/goal` 声明(agent 空闲时立即启动)、定时器到点、超时兜底。注意子 agent 结束**不会**触发新一轮,避免误触发。
-- **抑制只消费一次**:`goal_sleep` 后的第一次 settle 被抑制,之后若继续 settle 则说明未推进,交由续跑逻辑处理。
+- **唤醒来源只有一个**:`agent_before_settle` 边界注入续跑提示;`/goal` 空闲时另有一次主动 kickoff。子 agent 完成会由宿主原生唤醒新一轮,不需要本扩展做任何事。
+- **等待态不靠工具**:等待由宿主事件推导(见「等待感知」),扩展不再提供 `sleep` 类工具,因此不需要定时器、也不会因定时器泄漏而影响退出。

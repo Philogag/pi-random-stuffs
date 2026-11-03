@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  GOAL_LOOP_CUSTOM_TYPE,
   buildContinuationPrompt,
   finishFailure,
   finishSuccess,
@@ -9,53 +8,64 @@ import {
   goalStatusNotice,
   goalStoppedNotice,
   noGoalNotice,
-  sleepFailure,
-  sleepScheduledNotice,
+  GOAL_LOOP_CUSTOM_TYPE,
 } from "../src/prompts.js";
 
 describe("prompts", () => {
-  it("uses the shared custom type", () => {
+  it("uses a stable custom message type", () => {
     expect(GOAL_LOOP_CUSTOM_TYPE).toBe("goal-loop");
   });
 
-  it("continuation prompt carries the goal and the two agent exits", () => {
+  it("continuation prompt carries the goal and the finish tool", () => {
     const text = buildContinuationPrompt("重构 X 模块");
     expect(text).toContain("重构 X 模块");
     expect(text).toContain("goal_finish");
-    expect(text).toContain("goal_sleep");
     expect(text).toContain("直到目标完全完成");
     expect(text).not.toContain("/goal-stop");
   });
 
-  it("started notice mentions the in-memory limitation and /goal-stop", () => {
+  it("continuation prompt no longer mentions the removed sleep tool", () => {
+    expect(buildContinuationPrompt("重构 X 模块")).not.toContain("goal_sleep");
+  });
+
+  it("continuation prompt only points at goal_finish", () => {
+    const text = buildContinuationPrompt("重构 X 模块");
+    expect(text).toContain("goal_finish");
+    expect(text).not.toContain("ask_user_question");
+    expect(text).not.toContain("bg_wait");
+    expect(text).not.toContain("sleep");
+    expect(text).not.toContain("轮询");
+  });
+
+  it("started notice names the goal and the ways out", () => {
     const text = goalStartedNotice("重构 X 模块");
     expect(text).toContain("重构 X 模块");
+    expect(text).toContain("goal_finish");
     expect(text).toContain("/goal-stop");
     expect(text).toContain("内存");
   });
 
-  it("replaced notice names the new goal", () => {
-    expect(goalReplacedNotice("新目标")).toContain("新目标");
-    expect(goalReplacedNotice("新目标")).toContain("替换");
+  it("replaced notice names the new goal and the cleared wait state", () => {
+    const text = goalReplacedNotice("给 Y 补集成测试");
+    expect(text).toContain("给 Y 补集成测试");
+    expect(text).toContain("已被替换");
+    expect(text).toContain("等待态");
   });
 
-  it("status notice shows the goal and the in-memory limitation", () => {
+  it("status notice reports the active goal", () => {
     const text = goalStatusNotice("重构 X 模块");
+    expect(text).toContain("当前活动目标");
     expect(text).toContain("重构 X 模块");
-    expect(text).toContain("内存");
+    expect(text).toContain("/goal-stop");
   });
 
-  it("no-goal notices exist for command, tool and sleep paths", () => {
+  it("no-goal notices exist for command and tool paths", () => {
     expect(noGoalNotice()).toContain("没有活动目标");
-    expect(goalStoppedNotice()).toContain("已停止");
-    expect(finishSuccess()).toContain("goal_finish");
     expect(finishFailure()).toContain("没有活动目标");
-    expect(sleepFailure()).toContain("没有活动目标");
   });
 
-  it("sleep notice reports the clamped duration and resume time", () => {
-    const text = sleepScheduledNotice(900, "2026-01-01T00:15:00.000Z");
-    expect(text).toContain("900");
-    expect(text).toContain("2026-01-01T00:15:00.000Z");
+  it("stop and finish notices explain that continuation ends", () => {
+    expect(goalStoppedNotice()).toContain("不再自动续跑");
+    expect(finishSuccess()).toContain("goal_finish");
   });
 });
